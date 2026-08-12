@@ -107,6 +107,59 @@ export interface MemoryCandidate {
   linkedEntityId?: string;
 }
 
+/**
+ * PendingCandidate — a proposed memory/evidence record awaiting user
+ * confirmation. Nothing is persisted as durable Evidence/Memory until
+ * the user explicitly confirms. Rejected candidates are deleted.
+ */
+export interface PendingCandidate {
+  id: string;
+  userId: string;
+  entityType: "evidence" | "hypothesis" | "person";
+  extractedStatement: string;
+  epistemicType: EpistemicType;
+  sourceType: SourceType;
+  reasonToSave: string;
+  linkedEntityId?: string;
+  sourceMessageId?: string;
+  isMock: boolean;
+  editedBeforeConfirm: boolean;
+  createdAt: string;
+}
+
+/**
+ * EvidenceData — the shape of a confirmed Evidence record.
+ */
+export interface EvidenceData {
+  id: string;
+  userId: string;
+  sourceType: SourceType;
+  epistemicType: EpistemicType;
+  description: string;
+  personId?: string | null;
+  occurredAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * MemoryRecordData — the shape of a confirmed Memory record.
+ */
+export interface MemoryRecordData {
+  id: string;
+  userId: string;
+  entityType: string;
+  entityId?: string | null;
+  extractedStatement: string;
+  epistemicType: EpistemicType;
+  sourceType: SourceType;
+  sourceMessageId?: string | null;
+  confirmed: boolean;
+  editedBeforeConfirm: boolean;
+  createdAt: string;
+  confirmedAt?: string | null;
+}
+
 // ── Career context ─────────────────────────────────────────────────────
 
 export interface CareerContextData {

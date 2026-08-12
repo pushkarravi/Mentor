@@ -167,19 +167,31 @@ _(Update this section every milestone.)_
   CHANGELOG.md, `.env.example`, `.gitignore`.
 - **M0 Stage A complete** — Career context capture + Coach conversation with epistemic claim
   analysis. The user can enter minimal career context, start a conversation, and receive a
-  response that includes a structured claim decomposition (fact/interpretation/hypothesis/emotion).
-  The response uses the MockProvider (placeholder) by default; set `AI_PROVIDER=perplexity` and
-  `PERPLEXITY_API_KEY` for real AI reasoning.
+  response that includes a structured claim decomposition (fact/interpretation/assumption/
+  hypothesis/emotion). The response uses the MockProvider (placeholder) by default; set
+  `AI_PROVIDER=perplexity` and `PERPLEXITY_API_KEY` for real AI reasoning.
+- **M0 Stage B complete** — Memory candidate extraction with confirm/edit/reject flow.
+  After each conversation turn, the engine proposes structured Evidence/Memory candidates
+  with full epistemic/source typing. Candidates are pending until the user explicitly
+  confirms, edits, or rejects them. Rejected candidates are deleted — nothing is persisted.
+  Edits are validated again at the persistence boundary (ai_inference + fact is rejected in
+  code, not just by prompt). Confirmed candidates are persisted as Evidence + Memory records.
+  MockProvider generates deterministic mock candidates marked with [Mock] prefixes.
 - **Backend** (`backend/`): Fastify + TypeScript + Prisma + Vitest + ESLint. AIProvider interface
-  with MockProvider and PerplexityProvider. CareerReasoningEngine with `analyzeClaim()` and
-  `respond()`. Epistemic enforcement in code (`validateEpistemicPair` rejects ai_inference+fact).
-  Qualitative confidence computation (`computeConfidence` — tentative/moderate/strong). Three
-  reasoning-lens prompts (Coach, Challenger, Decision Advisor v1). Retrieval module. In-memory
-  conversation repository. Fastify routes for context and conversations. Zod validation. 15 tests
-  passing (typecheck, lint, tests all green).
+  with MockProvider and PerplexityProvider. CareerReasoningEngine with `analyzeClaim()`,
+  `respond()`, and `extractMemoryCandidates()`. Epistemic enforcement in code
+  (`validateEpistemicPair` rejects ai_inference+fact at extraction and persistence boundaries).
+  Qualitative confidence computation (`computeConfidence` — tentative/moderate/strong,
+  provisional M0 heuristic). Four reasoning-lens prompts (Coach, Challenger, Decision Advisor,
+  Extraction v1). Retrieval module. In-memory conversation repository with evidence, memory,
+  and pending candidate methods. Fastify routes for context, conversations, candidates, evidence,
+  and memory. Zod validation including `claimComponentTypeSchema` (six categories with assumption)
+  separate from `epistemicTypeSchema` (five persistable types). 28 tests passing (typecheck, lint,
+  tests all green).
 - **Frontend** (`apps/mobile/`): Expo + TypeScript + Expo Router. Career context capture screen.
   Coach chat screen with Coach / Challenge Me / Help Me Decide controls. Claim analysis panel
-  with color-coded epistemic decomposition.
+  with color-coded epistemic decomposition. Candidate review panel with Confirm / Edit / Reject
+  buttons, mock badges, and inline editing.
 - **Prisma schema** (`backend/prisma/schema.prisma`): M0 subset written and validated
   (`prisma generate` succeeds). **No migration has been applied** — `DATABASE_URL` was not
   available in the build environment. To apply locally:
@@ -191,19 +203,15 @@ _(Update this section every milestone.)_
 
 ## Next Recommended Tasks
 
-1. **Stage B**: Build the memory-extraction pipeline — `extractMemoryCandidates()` in
-   `CareerReasoningEngine`. After each conversation turn, propose candidate Evidence/Memory
-   records with `source_type` + `epistemic_type` + reason-to-save. Add confirm/edit/reject UI.
-   Enforce: nothing is persisted without confirmation; `ai_inference` can never be `fact`.
-2. **Stage C**: Implement `evaluateHypothesis()` in `CareerReasoningEngine`. Add hypothesis
+1. **Stage C**: Implement `evaluateHypothesis()` in `CareerReasoningEngine`. Add hypothesis
    creation from confirmed evidence. Show qualitative confidence + evidence counts.
-3. **Stage D**: Implement `recommendExperiment()` in `CareerReasoningEngine`. Add experiment
+2. **Stage D**: Implement `recommendExperiment()` in `CareerReasoningEngine`. Add experiment
    creation tied to a hypothesis with success signal and review date.
-4. **Stage E**: Add outcome recording on experiments.
-5. **Stage F**: Implement `reviewExperimentOutcome()` — close the loop: recorded outcome becomes
+3. **Stage E**: Add outcome recording on experiments.
+4. **Stage F**: Implement `reviewExperimentOutcome()` — close the loop: recorded outcome becomes
    new evidence → hypothesis reassessment visible with updated confidence.
-6. **Prisma migration**: Apply the M0 schema migration locally once PostgreSQL is available.
-7. **Golden Career Scenarios evaluation**: Once a real AIProvider (Perplexity) is connected,
+5. **Prisma migration**: Apply the M0 schema migration locally once PostgreSQL is available.
+6. **Golden Career Scenarios evaluation**: Once a real AIProvider (Perplexity) is connected,
    manually exercise scenarios #1, #3, #4, #5, #8, #10 against the reasoning loop. Do not
    evaluate scenarios against MockProvider.
-8. Push initial commits to `https://github.com/pushkarravi/Mentor`.
+7. Push initial commits to `https://github.com/pushkarravi/Mentor`.

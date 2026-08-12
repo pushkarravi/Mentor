@@ -17,6 +17,7 @@ export function conversationRoutes(
   repo: ConversationRepository,
   engine: CareerReasoningEngine,
   userId: string,
+  env: { AI_PROVIDER: string },
 ) {
   // ── Career context ────────────────────────────────────────────────
 
@@ -114,10 +115,39 @@ export function conversationRoutes(
       claimAnalysis,
     );
 
+    // 5. Extract memory candidates (Stage B)
+    //    Nothing is persisted here — candidates are stored as pending
+    //    and require explicit user confirmation.
+    const candidates = await engine.extractMemoryCandidates(
+      content,
+      claimAnalysis,
+      {
+        careerContext: careerCtx,
+        conversationHistory: conv.messages,
+        sourceMessageId: userMessage.id,
+      },
+    );
+
+    const isMock = env.AI_PROVIDER === "mock";
+    const pendingCandidates = await repo.addPendingCandidates(
+      userId,
+      candidates.map((c) => ({
+        entityType: c.entityType,
+        extractedStatement: c.extractedStatement,
+        epistemicType: c.epistemicType,
+        sourceType: c.sourceType,
+        reasonToSave: c.reasonToSave,
+        linkedEntityId: c.linkedEntityId,
+        sourceMessageId: userMessage.id,
+        isMock,
+      })),
+    );
+
     return reply.send({
       userMessage,
       assistantMessage,
       claimAnalysis,
+      candidates: pendingCandidates,
     });
   });
 }

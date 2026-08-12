@@ -49,4 +49,44 @@ export interface SendMessageResponse {
   userMessage: Message;
   assistantMessage: Message;
   claimAnalysis: ClaimAnalysis;
+  candidates: PendingCandidate[];
+}
+
+// ── Memory candidates (Stage B) ────────────────────────────────────────
+
+export type EntityType = "evidence" | "hypothesis" | "person";
+export type SourceType = "user_report" | "imported_document" | "ai_inference" | "observed_outcome";
+
+export interface PendingCandidate {
+  id: string;
+  entityType: EntityType;
+  extractedStatement: string;
+  epistemicType: ClaimComponentType;
+  sourceType: SourceType;
+  reasonToSave: string;
+  linkedEntityId?: string;
+  sourceMessageId?: string;
+  isMock: boolean;
+  editedBeforeConfirm: boolean;
+  createdAt: string;
+}
+
+export interface ConfirmCandidateResponse {
+  confirmed: boolean;
+  id: string;
+  evidenceId?: string | null;
+  memoryRecord?: {
+    id: string;
+    entityType: string;
+    extractedStatement: string;
+    epistemicType: string;
+    sourceType: string;
+    editedBeforeConfirm: boolean;
+    confirmed: boolean;
+  };
+}
+
+export interface RejectCandidateResponse {
+  rejected: boolean;
+  id: string;
 }

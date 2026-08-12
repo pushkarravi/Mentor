@@ -73,6 +73,34 @@ export const claimAnalysisResponseSchema = z.object({
   summary: z.string(),
 });
 
+// ── Memory candidate extraction ────────────────────────────────────────
+
+export const memoryCandidateSchema = z.object({
+  entityType: z.enum(["evidence", "hypothesis", "person"]),
+  extractedStatement: z.string().min(1),
+  epistemicType: epistemicTypeSchema,
+  sourceType: sourceTypeSchema,
+  reasonToSave: z.string().min(1),
+  linkedEntityId: z.string().optional(),
+});
+
+export const extractionResponseSchema = z.object({
+  candidates: z.array(memoryCandidateSchema),
+});
+
+// ── Candidate confirmation ─────────────────────────────────────────────
+
+export const confirmCandidateSchema = z.object({
+  action: z.enum(["confirm", "reject"]),
+  edits: z
+    .object({
+      extractedStatement: z.string().min(1).optional(),
+      epistemicType: epistemicTypeSchema.optional(),
+      sourceType: sourceTypeSchema.optional(),
+    })
+    .optional(),
+});
+
 export const messageResponseSchema = z.object({
   id: z.string(),
   conversationId: z.string(),

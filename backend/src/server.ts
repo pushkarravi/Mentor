@@ -5,6 +5,7 @@ import { createProvider } from "./ai/providers/factory.js";
 import { CareerReasoningEngine } from "./ai/reasoning/engine.js";
 import { InMemoryConversationRepository } from "./modules/conversations/in-memory.js";
 import { conversationRoutes } from "./api/conversations.js";
+import { memoryRoutes } from "./api/memory.js";
 
 /**
  * Fastify server entry point.
@@ -37,7 +38,8 @@ async function main() {
   const userId = "m0-local-user";
 
   // Register routes
-  conversationRoutes(app, repo, engine, userId);
+  conversationRoutes(app, repo, engine, userId, { AI_PROVIDER: env.aiProvider });
+  memoryRoutes(app, repo, engine, userId);
 
   // Health check
   app.get("/api/health", async () => ({

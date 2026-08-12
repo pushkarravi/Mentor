@@ -4,6 +4,11 @@ import type {
   ConversationData,
   ClaimAnalysis,
   ReasoningLens,
+  EvidenceData,
+  MemoryRecordData,
+  PendingCandidate,
+  SourceType,
+  EpistemicType,
 } from "../../ai/types.js";
 import type { ConversationRepository } from "./repository.js";
 
@@ -115,5 +120,170 @@ export class InMemoryConversationRepository
 
   async listMessages(conversationId: string): Promise<MessageData[]> {
     return this.messages.filter((m) => m.conversationId === conversationId);
+  }
+
+  // ── Pending candidates ───────────────────────────────────────────
+
+  private pendingCandidates: PendingCandidate[] = [];
+
+  async addPendingCandidates(
+    userId: string,
+    candidates: Array<{
+      entityType: "evidence" | "hypothesis" | "person";
+      extractedStatement: string;
+      epistemicType: EpistemicType;
+      sourceType: SourceType;
+      reasonToSave: string;
+      linkedEntityId?: string;
+      sourceMessageId?: string;
+      isMock: boolean;
+    }>,
+  ): Promise<PendingCandidate[]> {
+    const result: PendingCandidate[] = [];
+    for (const c of candidates) {
+      const pc: PendingCandidate = {
+        id: this.nextId("cand"),
+        userId,
+        entityType: c.entityType,
+        extractedStatement: c.extractedStatement,
+        epistemicType: c.epistemicType,
+        sourceType: c.sourceType,
+        reasonToSave: c.reasonToSave,
+        linkedEntityId: c.linkedEntityId,
+        sourceMessageId: c.sourceMessageId,
+        isMock: c.isMock,
+        editedBeforeConfirm: false,
+        createdAt: new Date().toISOString(),
+      };
+      this.pendingCandidates.push(pc);
+      result.push(pc);
+    }
+    return result;
+  }
+
+  async getPendingCandidate(
+    userId: string,
+    candidateId: string,
+  ): Promise<PendingCandidate | null> {
+    const pc = this.pendingCandidates.find(
+      (c) => c.id === candidateId && c.userId === userId,
+    );
+    return pc ?? null;
+  }
+
+  async listPendingCandidates(userId: string): Promise<PendingCandidate[]> {
+    return this.pendingCandidates.filter((c) => c.userId === userId);
+  }
+
+  async deletePendingCandidate(
+    userId: string,
+    candidateId: string,
+  ): Promise<void> {
+    this.pendingCandidates = this.pendingCandidates.filter(
+      (c) => !(c.id === candidateId && c.userId === userId),
+    );
+  }
+
+  async updatePendingCandidate(
+    userId: string,
+    candidateId: string,
+    edits: {
+      extractedStatement?: string;
+      epistemicType?: EpistemicType;
+      sourceType?: SourceType;
+    },
+  ): Promise<PendingCandidate | null> {
+    const pc = this.pendingCandidates.find(
+      (c) => c.id === candidateId && c.userId === userId,
+    );
+    if (!pc) return null;
+
+    let edited = false;
+    if (edits.extractedStatement !== undefined && edits.extractedStatement !== pc.extractedStatement) {
+      pc.extractedStatement = edits.extractedStatement;
+      edited = true;
+    }
+    if (edits.epistemicType !== undefined && edits.epistemicType !== pc.epistemicType) {
+      pc.epistemicType = edits.epistemicType;
+      edited = true;
+    }
+    if (edits.sourceType !== undefined && edits.sourceType !== pc.sourceType) {
+      pc.sourceType = edits.sourceType;
+      edited = true;
+    }
+    if (edited) {
+      pc.editedBeforeConfirm = true;
+    }
+    return pc;
+  }
+
+  // ── Confirmed evidence ───────────────────────────────────────────
+
+  private evidence: EvidenceData[] = [];
+
+  async addEvidence(
+    userId: string,
+    data: {
+      sourceType: SourceType;
+      epistemicType: EpistemicType;
+      description: string;
+      personId?: string | null;
+    },
+  ): Promise<EvidenceData> {
+    const ev: EvidenceData = {
+      id: this.nextId("ev"),
+      userId,
+      sourceType: data.sourceType,
+      epistemicType: data.epistemicType,
+      description: data.description,
+      personId: data.personId ?? null,
+      occurredAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.evidence.push(ev);
+    return ev;
+  }
+
+  async listEvidence(userId: string): Promise<EvidenceData[]> {
+    return this.evidence.filter((e) => e.userId === userId);
+  }
+
+  // ── Confirmed memory records ─────────────────────────────────────
+
+  private memoryRecords: MemoryRecordData[] = [];
+
+  async addMemoryRecord(
+    userId: string,
+    data: {
+      entityType: string;
+      entityId?: string | null;
+      extractedStatement: string;
+      epistemicType: EpistemicType;
+      sourceType: SourceType;
+      sourceMessageId?: string | null;
+      editedBeforeConfirm: boolean;
+    },
+  ): Promise<MemoryRecordData> {
+    const mr: MemoryRecordData = {
+      id: this.nextId("mem"),
+      userId,
+      entityType: data.entityType,
+      entityId: data.entityId ?? null,
+      extractedStatement: data.extractedStatement,
+      epistemicType: data.epistemicType,
+      sourceType: data.sourceType,
+      sourceMessageId: data.sourceMessageId ?? null,
+      confirmed: true,
+      editedBeforeConfirm: data.editedBeforeConfirm,
+      createdAt: new Date().toISOString(),
+      confirmedAt: new Date().toISOString(),
+    };
+    this.memoryRecords.push(mr);
+    return mr;
+  }
+
+  async listMemoryRecords(userId: string): Promise<MemoryRecordData[]> {
+    return this.memoryRecords.filter((m) => m.userId === userId);
   }
 }

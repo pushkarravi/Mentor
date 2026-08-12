@@ -14,15 +14,19 @@ import type {
 } from "../types.js";
 import {
   claimAnalysisResponseSchema,
+  extractionResponseSchema,
 } from "../../api/schemas.js";
 import {
   assembleSystemPrompt,
   formatCareerContext,
+  formatClaimAnalysis,
   formatConversationHistory,
   formatEvidence,
   formatHypotheses,
   type RetrievedContext,
 } from "../retrieval/index.js";
+import { extractionSystemPrompt } from "../prompts/index.js";
+import type { MemoryCandidate } from "../types.js";
 
 /**
  * Epistemic enforcement rules — these are Product Invariants enforced
@@ -255,5 +259,110 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
 
     const result = await this.provider.chat({ messages, system });
     return result.content;
+  }
+
+  /**
+   * extractMemoryCandidates — proposes candidate Evidence/Memory records
+   * from a conversation turn. Each candidate carries full epistemic/source
+   * typing and a reason-to-save.
+   *
+   * Nothing is persisted here. Candidates are returned to the caller for
+   * the confirm/edit/reject flow. The epistemic enforcement rule
+   * (ai_inference cannot be fact) is checked at extraction time so invalid
+   * candidates are filtered before they reach the user.
+   *
+   * With MockProvider, returns deterministic mock candidates clearly
+   * marked as mock data — not real career evidence.
+   */
+  async extractMemoryCandidates(
+    userMessage: string,
+    claimAnalysis: ClaimAnalysis,
+    context: {
+      careerContext?: CareerContextData | null;
+      conversationHistory?: MessageData[];
+      sourceMessageId?: string;
+    },
+  ): Promise<MemoryCandidate[]> {
+    const system = extractionSystemPrompt({
+      careerContext: formatCareerContext(context.careerContext ?? null),
+      claimAnalysis: formatClaimAnalysis(claimAnalysis),
+      conversationHistory: formatConversationHistory(
+        context.conversationHistory ?? [],
+      ),
+    });
+
+    const messages: ChatMessage[] = [
+      { role: "user", content: userMessage },
+    ];
+
+    const result = await this.provider.chat({ messages, system });
+
+    // Validate model output against the extraction Zod schema.
+    const candidates: MemoryCandidate[] = [];
+    const rawCandidates: unknown[] = [];
+
+    if (result.structured) {
+      rawCandidates.push(result.structured);
+    }
+    try {
+      rawCandidates.push(JSON.parse(result.content));
+    } catch {
+      // not JSON
+    }
+
+    for (const raw of rawCandidates) {
+      const parsed = extractionResponseSchema.safeParse(raw);
+      if (parsed.success) {
+        for (const c of parsed.data.candidates) {
+          // Enforce epistemic rule at extraction time: filter invalid pairs
+          // before they reach the user.
+          const check = validateEpistemicPair(c.sourceType, c.epistemicType);
+          if (check.valid) {
+            candidates.push({
+              entityType: c.entityType,
+              extractedStatement: c.extractedStatement,
+              epistemicType: c.epistemicType,
+              sourceType: c.sourceType,
+              reasonToSave: c.reasonToSave,
+              linkedEntityId: c.linkedEntityId,
+            });
+          }
+        }
+        break; // use first valid parse
+      }
+    }
+
+    // MockProvider fallback: deterministic mock candidates.
+    // These are clearly marked with [Mock] prefixes so they are never
+    // mistaken for real career evidence.
+    if (candidates.length === 0) {
+      return this.generateMockCandidates(userMessage);
+    }
+
+    return candidates;
+  }
+
+  /**
+   * Generates deterministic mock candidates for plumbing tests.
+   * Each candidate is prefixed with [Mock] so it is never treated
+   * as real career evidence.
+   */
+  private generateMockCandidates(userMessage: string): MemoryCandidate[] {
+    return [
+      {
+        entityType: "evidence",
+        extractedStatement: `[Mock] Evidence extracted from: "${userMessage.slice(0, 60)}"`,
+        epistemicType: "fact",
+        sourceType: "user_report",
+        reasonToSave: "[Mock] Testing the candidate pipeline plumbing.",
+      },
+      {
+        entityType: "evidence",
+        extractedStatement: "[Mock] The user's interpretation of the situation.",
+        epistemicType: "interpretation",
+        sourceType: "ai_inference",
+        reasonToSave: "[Mock] Testing ai_inference candidate flow.",
+      },
+    ];
   }
 }

@@ -3,6 +3,9 @@ import type {
   Conversation,
   ReasoningLens,
   SendMessageResponse,
+  PendingCandidate,
+  ConfirmCandidateResponse,
+  RejectCandidateResponse,
 } from "./types";
 
 const API_BASE =
@@ -66,6 +69,28 @@ export const api = {
       {
         method: "POST",
         body: JSON.stringify({ content, lens }),
+      },
+    ),
+
+  // ── Candidates (Stage B) ───────────────────────────────────────────
+
+  listCandidates: () =>
+    request<PendingCandidate[]>("/api/candidates"),
+
+  confirmCandidate: (
+    id: string,
+    action: "confirm" | "reject",
+    edits?: {
+      extractedStatement?: string;
+      epistemicType?: string;
+      sourceType?: string;
+    },
+  ) =>
+    request<ConfirmCandidateResponse | RejectCandidateResponse>(
+      `/api/candidates/${id}/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ action, edits }),
       },
     ),
 
