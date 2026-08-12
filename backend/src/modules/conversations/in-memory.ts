@@ -15,6 +15,7 @@ import type {
   HypothesisStatus,
   LinkType,
   ExperimentData,
+  OutcomeClassification,
 } from "../../ai/types.js";
 import { validateEpistemicPair } from "../../ai/reasoning/engine.js";
 import type { ConversationRepository } from "./repository.js";
@@ -510,6 +511,8 @@ export class InMemoryConversationRepository
       reviewDate: data.reviewDate ?? null,
       status: "proposed",
       outcome: null,
+      outcomeClassification: null,
+      outcomeEvidenceId: null,
       outcomeRecordedAt: null,
       createdAt: now,
       updatedAt: now,
@@ -539,5 +542,29 @@ export class InMemoryConversationRepository
     return this.experiments.filter(
       (e) => e.userId === userId && e.hypothesisId === hypothesisId,
     );
+  }
+
+  async recordExperimentOutcome(
+    userId: string,
+    experimentId: string,
+    data: {
+      outcome: string;
+      outcomeClassification: OutcomeClassification;
+      evidenceId: string | null;
+    },
+  ): Promise<ExperimentData | null> {
+    const exp = this.experiments.find(
+      (e) => e.id === experimentId && e.userId === userId,
+    );
+    if (!exp || exp.outcome !== null) return null;
+
+    const now = new Date().toISOString();
+    exp.outcome = data.outcome;
+    exp.outcomeClassification = data.outcomeClassification;
+    exp.outcomeEvidenceId = data.evidenceId;
+    exp.outcomeRecordedAt = now;
+    exp.status = "completed";
+    exp.updatedAt = now;
+    return exp;
   }
 }

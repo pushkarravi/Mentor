@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   CareerReasoningEngine,
   RecommendationError,
+  OutcomeError,
 } from "../reasoning/engine.js";
 import { reviewDateSchema } from "../schemas.js";
+import type { ExperimentData } from "../types.js";
 import { InMemoryConversationRepository } from "../../modules/conversations/in-memory.js";
 import { createExperimentSchema } from "../../api/schemas.js";
 import type {
@@ -542,6 +544,23 @@ describe("Stage D: Review date validation — shared domain schema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("reviewDateSchema rejects a non-ISO parseable date string like 'August 30, 2026'", () => {
+    const result = reviewDateSchema.safeParse("August 30, 2026");
+    expect(result.success).toBe(false);
+  });
+
+  it("reviewDateSchema rejects a datetime string (YYYY-MM-DDTHH:mm:ssZ)", () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    const result = reviewDateSchema.safeParse(d.toISOString());
+    expect(result.success).toBe(false);
+  });
+
+  it("reviewDateSchema rejects an invalid calendar date (Feb 31)", () => {
+    const result = reviewDateSchema.safeParse("2026-02-31");
+    expect(result.success).toBe(false);
+  });
+
   it("reviewDateSchema rejects a date less than 1 week in the future", () => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
@@ -606,6 +625,24 @@ describe("Stage D: Review date validation — shared domain schema", () => {
 
   it("manual creation rejects a missing review date", () => {
     const result = createExperimentSchema.safeParse(validBase);
+    expect(result.success).toBe(false);
+  });
+
+  it("manual creation rejects a non-ISO parseable date string", () => {
+    const result = createExperimentSchema.safeParse({
+      ...validBase,
+      reviewDate: "August 30, 2026",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("manual creation rejects a datetime string", () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    const result = createExperimentSchema.safeParse({
+      ...validBase,
+      reviewDate: d.toISOString(),
+    });
     expect(result.success).toBe(false);
   });
 
@@ -695,5 +732,188 @@ describe("Stage D: ExperimentProposal type", () => {
     expect(proposal.contradictingSignal).toBeTruthy();
     expect(proposal.inconclusiveSignal).toBeTruthy();
     expect(proposal.rationale).toBeTruthy();
+  });
+});
+
+// ── Stage E: Experiment outcome recording ──────────────────────────────
+
+describe("Stage E: recordExperimentOutcome()", () => {
+  let repo: InMemoryConversationRepository;
+  let engine: CareerReasoningEngine;
+
+  beforeEach(() => {
+    repo = new InMemoryConversationRepository();
+    const provider = new StubProvider(
+      {
+        content: '{"components":[{"type":"fact","text":"t"}],"summary":"t"}',
+        structured: null,
+      },
+      true,
+    );
+    engine = new CareerReasoningEngine(provider);
+  });
+
+  async function createExperiment(
+    repo: InMemoryConversationRepository,
+  ): Promise<ExperimentData> {
+    const hyp = await createHypothesis(repo);
+    return repo.createExperiment(USER_ID, {
+      hypothesisId: hyp.id,
+      description: "Track meeting invitations for 2 weeks",
+      supportingSignal: "I am explicitly excluded from a strategy meeting",
+      contradictingSignal: "I am invited to a strategy meeting",
+      inconclusiveSignal: "No strategy meetings occur during the period",
+      rationale: "This tests whether the exclusion pattern is deliberate",
+    });
+  }
+
+  it("records a supporting outcome, creates observed_outcome evidence, marks experiment completed", async () => {
+    const exp = await createExperiment(repo);
+    const result = await engine.recordExperimentOutcome(
+      exp,
+      "I was excluded from the Q3 strategy meeting on Aug 15",
+      "supports",
+      repo,
+      USER_ID,
+    );
+
+    expect(result.classification).toBe("supports");
+    expect(result.experiment.outcome).toBe(
+      "I was excluded from the Q3 strategy meeting on Aug 15",
+    );
+    expect(result.experiment.outcomeClassification).toBe("supports");
+    expect(result.experiment.status).toBe("completed");
+    expect(result.experiment.outcomeRecordedAt).not.toBeNull();
+
+    // observed_outcome evidence is created for supports
+    expect(result.evidence).not.toBeNull();
+    expect(result.evidence!.sourceType).toBe("observed_outcome");
+    expect(result.evidence!.epistemicType).toBe("fact");
+    expect(result.evidence!.description).toBe(
+      "I was excluded from the Q3 strategy meeting on Aug 15",
+    );
+    expect(result.experiment.outcomeEvidenceId).toBe(result.evidence!.id);
+  });
+
+  it("records a contradicting outcome, creates observed_outcome evidence", async () => {
+    const exp = await createExperiment(repo);
+    const result = await engine.recordExperimentOutcome(
+      exp,
+      "I was invited to present at the strategy meeting",
+      "contradicts",
+      repo,
+      USER_ID,
+    );
+
+    expect(result.classification).toBe("contradicts");
+    expect(result.experiment.status).toBe("completed");
+    expect(result.evidence).not.toBeNull();
+    expect(result.evidence!.sourceType).toBe("observed_outcome");
+    expect(result.evidence!.epistemicType).toBe("fact");
+    expect(result.experiment.outcomeEvidenceId).toBe(result.evidence!.id);
+  });
+
+  it("records an inconclusive outcome without creating evidence", async () => {
+    const exp = await createExperiment(repo);
+    const result = await engine.recordExperimentOutcome(
+      exp,
+      "No strategy meetings were held during the 2-week period",
+      "inconclusive",
+      repo,
+      USER_ID,
+    );
+
+    expect(result.classification).toBe("inconclusive");
+    expect(result.experiment.status).toBe("completed");
+    expect(result.experiment.outcome).toBe(
+      "No strategy meetings were held during the 2-week period",
+    );
+    // No evidence created for inconclusive outcomes
+    expect(result.evidence).toBeNull();
+    expect(result.experiment.outcomeEvidenceId).toBeNull();
+  });
+
+  it("preserves the raw outcome text verbatim in the evidence description", async () => {
+    const exp = await createExperiment(repo);
+    const rawText =
+      "On Aug 12, I was NOT invited to the strategy meeting. " +
+      "My colleague Jane was invited instead. This felt deliberate.";
+    const result = await engine.recordExperimentOutcome(
+      exp,
+      rawText,
+      "supports",
+      repo,
+      USER_ID,
+    );
+
+    expect(result.experiment.outcome).toBe(rawText);
+    expect(result.evidence!.description).toBe(rawText);
+  });
+
+  it("rejects double-recording an outcome on the same experiment", async () => {
+    const exp = await createExperiment(repo);
+    await engine.recordExperimentOutcome(
+      exp,
+      "First outcome",
+      "supports",
+      repo,
+      USER_ID,
+    );
+
+    // Attempt to record again
+    await expect(
+      engine.recordExperimentOutcome(
+        exp,
+        "Second outcome",
+        "contradicts",
+        repo,
+        USER_ID,
+      ),
+    ).rejects.toThrow(OutcomeError);
+  });
+
+  it("does not reassess the hypothesis (Stage E stops before reassessment)", async () => {
+    const hyp = await createHypothesis(repo);
+    const exp = await repo.createExperiment(USER_ID, {
+      hypothesisId: hyp.id,
+      description: "Test experiment",
+      supportingSignal: "Supporting obs",
+      contradictingSignal: "Contradicting obs",
+      inconclusiveSignal: "Inconclusive case",
+      rationale: "Why it matters",
+    });
+
+    await engine.recordExperimentOutcome(
+      exp,
+      "Supporting outcome observed",
+      "supports",
+      repo,
+      USER_ID,
+    );
+
+    // The hypothesis status and confidence should NOT have changed.
+    // Stage E records the outcome and stops. Stage F does reassessment.
+    const retrieved = await repo.getHypothesis(USER_ID, hyp.id);
+    expect(retrieved!.status).toBe("active");
+    // No new evidence links should have been created by Stage E
+    // (the evidence exists but is not yet linked to the hypothesis).
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    expect(links).toHaveLength(0);
+  });
+
+  it("observed_outcome evidence has epistemic_type fact (not inference)", async () => {
+    const exp = await createExperiment(repo);
+    const result = await engine.recordExperimentOutcome(
+      exp,
+      "Observed: excluded from meeting",
+      "supports",
+      repo,
+      USER_ID,
+    );
+
+    // Invariant #2: observed_outcome is the one source type that
+    // can carry fact-grade epistemic status.
+    expect(result.evidence!.epistemicType).toBe("fact");
+    expect(result.evidence!.sourceType).toBe("observed_outcome");
   });
 });

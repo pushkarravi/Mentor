@@ -22,6 +22,7 @@ export {
   hypothesisStatusSchema,
   linkTypeSchema,
   experimentStatusSchema,
+  experimentProposalResponseSchema,
 } from "../ai/schemas.js";
 
 import {
@@ -162,12 +163,6 @@ export const experimentResponseSchema = z.object({
   updatedAt: z.string(),
 });
 
-export const experimentProposalResponseSchema = z.object({
-  hypothesisId: z.string(),
-  description: z.string(),
-  supportingSignal: z.string(),
-  contradictingSignal: z.string(),
-  inconclusiveSignal: z.string(),
-  reviewDate: z.string(),
-  rationale: z.string(),
-});
+// experimentProposalResponseSchema is re-exported from ../ai/schemas.js
+// (see export block at top of file). The API layer does not maintain a
+// separate copy — the AI-domain schema is the single contract.

@@ -104,7 +104,9 @@ export const experimentStatusSchema = z.enum([
  * proposals) so the rule is defined once.
  *
  * M0 constraints:
- * - Valid ISO date string (YYYY-MM-DD or full ISO 8601).
+ * - Strict calendar format: YYYY-MM-DD (no datetime strings, to
+ *   avoid timezone ambiguity).
+ * - Must be a real calendar date (e.g. not 2026-02-31).
  * - Must be in the future.
  * - Must be approximately 1–6 weeks from now (7–42 days).
  *
@@ -116,25 +118,45 @@ export const experimentStatusSchema = z.enum([
 const REVIEW_DATE_MIN_DAYS = 7;
 const REVIEW_DATE_MAX_DAYS = 42;
 
+const YYYY_MM_DD_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Parses a YYYY-MM-DD string as a UTC midnight Date, avoiding the
+ * timezone-offer interpretation that `new Date("YYYY-MM-DD")` would
+ * apply in non-UTC environments. Returns NaN for invalid dates.
+ */
+function parseDateOnlyUTC(val: string): number {
+  const [y, m, d] = val.split("-").map(Number);
+  if (y === undefined || m === undefined || d === undefined) return NaN;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  // Reject non-existent calendar dates (e.g. Feb 31).
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== m - 1 ||
+    dt.getUTCDate() !== d
+  ) {
+    return NaN;
+  }
+  return dt.getTime();
+}
+
 export const reviewDateSchema = z
   .string()
   .min(1, "A review date is required.")
-  .refine((val) => !isNaN(new Date(val).getTime()), {
-    message: "The review date is not a valid date.",
+  .refine((val) => YYYY_MM_DD_REGEX.test(val), {
+    message: "The review date must be in YYYY-MM-DD format.",
+  })
+  .refine((val) => !isNaN(parseDateOnlyUTC(val)), {
+    message: "The review date is not a valid calendar date.",
   })
   .refine(
-    (val) => {
-      const diffDays = Math.round(
-        (new Date(val).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-      );
-      return diffDays >= 1;
-    },
+    (val) => parseDateOnlyUTC(val) > Date.now(),
     { message: "The review date must be in the future." },
   )
   .refine(
     (val) => {
       const diffDays = Math.round(
-        (new Date(val).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+        (parseDateOnlyUTC(val) - Date.now()) / (1000 * 60 * 60 * 24),
       );
       return diffDays >= REVIEW_DATE_MIN_DAYS;
     },
@@ -143,7 +165,7 @@ export const reviewDateSchema = z
   .refine(
     (val) => {
       const diffDays = Math.round(
-        (new Date(val).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+        (parseDateOnlyUTC(val) - Date.now()) / (1000 * 60 * 60 * 24),
       );
       return diffDays <= REVIEW_DATE_MAX_DAYS;
     },
@@ -158,4 +180,23 @@ export const experimentProposalResponseSchema = z.object({
   inconclusiveSignal: z.string().min(1),
   reviewDate: reviewDateSchema,
   rationale: z.string().min(1),
+});
+
+// ── Experiment Outcome (Stage E) ───────────────────────────────────────
+
+export const outcomeClassificationSchema = z.enum([
+  "supports",
+  "contradicts",
+  "inconclusive",
+]);
+
+/**
+ * Schema for recording a manually entered experiment outcome.
+ * The user provides the raw outcome text and an explicit
+ * classification. The engine does not auto-classify in M0 — the
+ * user decides which signal was observed.
+ */
+export const recordOutcomeSchema = z.object({
+  outcomeText: z.string().min(1, "Outcome description is required."),
+  classification: outcomeClassificationSchema,
 });

@@ -15,6 +15,7 @@ import type {
   ConfidenceCategory,
   LinkType,
   ExperimentData,
+  OutcomeClassification,
 } from "../../ai/types.js";
 
 /**
@@ -230,4 +231,23 @@ n   * contradict another — links are per-pair.
     userId: string,
     hypothesisId: string,
   ): Promise<ExperimentData[]>;
+
+  /**
+   * Records an outcome on an experiment. Marks the experiment as
+   * completed, stores the raw outcome text, classification, and
+   * optional evidenceId linking to the observed_outcome Evidence
+   * record. Does NOT reassess the hypothesis — that is Stage F.
+   *
+   * Returns the updated experiment, or null if the experiment was
+   * not found or already has a recorded outcome.
+   */
+  recordExperimentOutcome(
+    userId: string,
+    experimentId: string,
+    data: {
+      outcome: string;
+      outcomeClassification: OutcomeClassification;
+      evidenceId: string | null;
+    },
+  ): Promise<ExperimentData | null>;
 }

@@ -223,6 +223,8 @@ export interface ExperimentData {
   status: ExperimentStatus;
   /** Recorded outcome — populated in Stage E, null in Stage D. */
   outcome: string | null;
+  outcomeClassification: OutcomeClassification | null;
+  outcomeEvidenceId: string | null;
   outcomeRecordedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -243,6 +245,39 @@ export interface ExperimentProposal {
   inconclusiveSignal: string;
   reviewDate: string;
   rationale: string;
+}
+
+// ── Experiment Outcome (Stage E) ──────────────────────────────────────────
+
+/**
+ * OutcomeClassification — how a recorded experiment outcome relates
+ * to the hypothesis being tested.
+ *
+ * - "supports": the outcome matched the experiment's supportingSignal,
+ *   strengthening the hypothesis.
+ * - "contradicts": the outcome matched the experiment's
+ *   contradictingSignal, weakening the hypothesis.
+ * - "inconclusive": the experiment did not meaningfully test the
+ *   hypothesis (matched inconclusiveSignal or no clear signal).
+ *
+ * This classification drives whether an observed_outcome Evidence
+ * record is created and how it gets linked to the hypothesis in
+ * Stage F.
+ */
+export type OutcomeClassification = "supports" | "contradicts" | "inconclusive";
+
+/**
+ * ExperimentOutcomeResult — the return value of
+ * recordExperimentOutcome(). Contains the updated experiment, the
+ * classification, and (if created) the new observed_outcome Evidence
+ * record.
+ *
+ * No hypothesis reassessment happens here — that is Stage F.
+ */
+export interface ExperimentOutcomeResult {
+  experiment: ExperimentData;
+  classification: OutcomeClassification;
+  evidence: EvidenceData | null;
 }
 
 // ── Memory candidate (from extraction pipeline) ────────────────────────

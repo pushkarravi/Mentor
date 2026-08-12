@@ -3,16 +3,20 @@ import type { ConversationRepository } from "../modules/conversations/repository
 import type { CareerReasoningEngine } from "../ai/reasoning/engine.js";
 import { RecommendationError } from "../ai/reasoning/engine.js";
 import { createExperimentSchema } from "./schemas.js";
+import { recordOutcomeSchema } from "../ai/schemas.js";
+import { OutcomeError } from "../ai/reasoning/engine.js";
 
 /**
- * Experiment routes — Stage D.
+ * Experiment routes — Stages D and E.
  *
  * Experiments are explicitly created by the user. The engine can
  * recommend a proposal via recommendExperiment(), but the user
  * decides whether to create it — no silent auto-creation.
  *
- * Outcome recording and hypothesis reassessment are Stage E/F —
- * not implemented here.
+ * Stage E: outcome recording. The user records what happened and
+ * classifies it. The engine creates an observed_outcome Evidence
+ * record (for supports/contradicts) and marks the experiment
+ * completed. No hypothesis reassessment here — that is Stage F.
  */
 export function experimentRoutes(
   app: FastifyInstance,
@@ -100,6 +104,40 @@ export function experimentRoutes(
     } catch (e) {
       if (e instanceof RecommendationError) {
         return reply.status(502).send({ error: e.message });
+      }
+      throw e;
+    }
+  });
+
+  // ── Record experiment outcome (Stage E) ──────────────────────────
+
+  app.post("/api/experiments/:id/outcome", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parsed = recordOutcomeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: "Validation failed",
+        details: parsed.error.issues,
+      });
+    }
+
+    const exp = await repo.getExperiment(userId, id);
+    if (!exp) {
+      return reply.status(404).send({ error: "Experiment not found" });
+    }
+
+    try {
+      const result = await engine.recordExperimentOutcome(
+        exp,
+        parsed.data.outcomeText,
+        parsed.data.classification,
+        repo,
+        userId,
+      );
+      return reply.send(result);
+    } catch (e) {
+      if (e instanceof OutcomeError) {
+        return reply.status(409).send({ error: e.message });
       }
       throw e;
     }

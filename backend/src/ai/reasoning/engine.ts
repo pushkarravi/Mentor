@@ -12,10 +12,13 @@ import type {
   HypothesisEvidenceLink,
   ExperimentProposal,
   ExperimentData,
+  ExperimentOutcomeResult,
+  OutcomeClassification,
   MessageData,
   ReasoningLens,
   SourceType,
 } from "../types.js";
+import type { ConversationRepository } from "../../modules/conversations/repository.js";
 import {
   claimAnalysisResponseSchema,
   extractionResponseSchema,
@@ -627,6 +630,88 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
     return parts.join(" ");
   }
 
+// ── Stage E: Experiment outcome recording ──────────────────────────────
+
+  /**
+   * recordExperimentOutcome — records what actually happened when the
+   * user carried out an experiment. The flow is:
+   *
+   * 1. The user provides raw outcome text and an explicit classification
+   *    (supports / contradicts / inconclusive).
+   * 2. For supports or contradicts, an observed_outcome Evidence record
+   *    is created with epistemic_type: "fact" — an observed outcome is
+   *    the only source type that can carry fact-grade epistemic status
+   *    (Invariant #2). The evidence description preserves the user's
+   *    raw outcome text.
+   * 3. For inconclusive, no Evidence record is created — an inconclusive
+   *    experiment does not produce new evidence.
+   * 4. The experiment is marked completed with the outcome text,
+   *    classification, and timestamp.
+   * 5. STOP. No hypothesis reassessment happens here — that is Stage F.
+   *
+   * Key constraints:
+   * - The classification is user-supplied, not auto-inferred. M0 does
+   *   not auto-classify outcomes.
+   * - observed_outcome + fact is the one valid exception to the
+   *   ai_inference→fact prohibition (validateEpistemicPair allows it
+   *   because sourceType is observed_outcome, not ai_inference).
+   * - The raw outcome text is preserved verbatim in the Evidence
+   *    description — no paraphrasing or summarization.
+   * - The experiment must exist and must not already have a recorded
+   *    outcome. Re-recording is not supported in M0.
+   */
+  async recordExperimentOutcome(
+    experiment: ExperimentData,
+    outcomeText: string,
+    classification: OutcomeClassification,
+    repo: ConversationRepository,
+    userId: string,
+  ): Promise<ExperimentOutcomeResult> {
+    // Reject double-recording.
+    if (experiment.outcome !== null) {
+      throw new OutcomeError(
+        "An outcome has already been recorded for this experiment. " +
+          "M0 does not support re-recording outcomes.",
+      );
+    }
+
+    // For supports/contradicts, create an observed_outcome Evidence
+    // record. The raw outcome text is preserved verbatim.
+    let evidence: EvidenceData | null = null;
+
+    if (classification === "supports" || classification === "contradicts") {
+      evidence = await repo.addEvidence(userId, {
+        sourceType: "observed_outcome",
+        epistemicType: "fact",
+        description: outcomeText,
+      });
+    }
+
+    // Mark the experiment completed with the outcome and classification.
+    const updated = await repo.recordExperimentOutcome(
+      userId,
+      experiment.id,
+      {
+        outcome: outcomeText,
+        outcomeClassification: classification,
+        evidenceId: evidence?.id ?? null,
+      },
+    );
+
+    if (!updated) {
+      throw new OutcomeError(
+        "Failed to record the experiment outcome — the experiment " +
+          "could not be updated.",
+      );
+    }
+
+    return {
+      experiment: updated,
+      classification,
+      evidence,
+    };
+  }
+
   // ── Stage D: Experiment recommendation ──────────────────────────────
 
   /**
@@ -883,6 +968,18 @@ export class RecommendationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "RecommendationError";
+  }
+}
+
+/**
+ * Controlled error for experiment outcome recording failures. Thrown
+ * when an outcome has already been recorded or the experiment cannot
+ * be updated. The route handler surfaces this as a user-visible error.
+ */
+export class OutcomeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OutcomeError";
   }
 }
 
