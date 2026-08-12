@@ -4,7 +4,7 @@ import {
   RecommendationError,
   OutcomeError,
 } from "../reasoning/engine.js";
-import { reviewDateSchema } from "../schemas.js";
+import { reviewDateSchema, recordOutcomeSchema } from "../schemas.js";
 import type { ExperimentData } from "../types.js";
 import { InMemoryConversationRepository } from "../../modules/conversations/in-memory.js";
 import { createExperimentSchema } from "../../api/schemas.js";
@@ -767,11 +767,12 @@ describe("Stage E: recordExperimentOutcome()", () => {
     });
   }
 
-  it("records a supporting outcome, creates observed_outcome evidence, marks experiment completed", async () => {
+  it("records a supporting outcome, creates observed_outcome evidence from observedFact, marks experiment completed", async () => {
     const exp = await createExperiment(repo);
     const result = await engine.recordExperimentOutcome(
       exp,
-      "I was excluded from the Q3 strategy meeting on Aug 15",
+      "My VP excluded me again because she clearly doesn't trust me.",
+      "I was not invited to the roadmap planning meeting on Aug 12.",
       "supports",
       repo,
       USER_ID,
@@ -779,27 +780,28 @@ describe("Stage E: recordExperimentOutcome()", () => {
 
     expect(result.classification).toBe("supports");
     expect(result.experiment.outcome).toBe(
-      "I was excluded from the Q3 strategy meeting on Aug 15",
+      "My VP excluded me again because she clearly doesn't trust me.",
     );
     expect(result.experiment.outcomeClassification).toBe("supports");
     expect(result.experiment.status).toBe("completed");
     expect(result.experiment.outcomeRecordedAt).not.toBeNull();
 
-    // observed_outcome evidence is created for supports
+    // observed_outcome evidence is created from observedFact, not outcomeText
     expect(result.evidence).not.toBeNull();
     expect(result.evidence!.sourceType).toBe("observed_outcome");
     expect(result.evidence!.epistemicType).toBe("fact");
     expect(result.evidence!.description).toBe(
-      "I was excluded from the Q3 strategy meeting on Aug 15",
+      "I was not invited to the roadmap planning meeting on Aug 12.",
     );
     expect(result.experiment.outcomeEvidenceId).toBe(result.evidence!.id);
   });
 
-  it("records a contradicting outcome, creates observed_outcome evidence", async () => {
+  it("records a contradicting outcome, creates observed_outcome evidence from observedFact", async () => {
     const exp = await createExperiment(repo);
     const result = await engine.recordExperimentOutcome(
       exp,
-      "I was invited to present at the strategy meeting",
+      "I was invited to present at the strategy meeting, which surprised me.",
+      "I was invited to present at the Q3 strategy meeting on Aug 15.",
       "contradicts",
       repo,
       USER_ID,
@@ -810,14 +812,18 @@ describe("Stage E: recordExperimentOutcome()", () => {
     expect(result.evidence).not.toBeNull();
     expect(result.evidence!.sourceType).toBe("observed_outcome");
     expect(result.evidence!.epistemicType).toBe("fact");
+    expect(result.evidence!.description).toBe(
+      "I was invited to present at the Q3 strategy meeting on Aug 15.",
+    );
     expect(result.experiment.outcomeEvidenceId).toBe(result.evidence!.id);
   });
 
-  it("records an inconclusive outcome without creating evidence", async () => {
+  it("records an inconclusive outcome without creating evidence and without requiring observedFact", async () => {
     const exp = await createExperiment(repo);
     const result = await engine.recordExperimentOutcome(
       exp,
-      "No strategy meetings were held during the 2-week period",
+      "No strategy meetings were held during the 2-week period.",
+      null,
       "inconclusive",
       repo,
       USER_ID,
@@ -826,35 +832,42 @@ describe("Stage E: recordExperimentOutcome()", () => {
     expect(result.classification).toBe("inconclusive");
     expect(result.experiment.status).toBe("completed");
     expect(result.experiment.outcome).toBe(
-      "No strategy meetings were held during the 2-week period",
+      "No strategy meetings were held during the 2-week period.",
     );
     // No evidence created for inconclusive outcomes
     expect(result.evidence).toBeNull();
     expect(result.experiment.outcomeEvidenceId).toBeNull();
   });
 
-  it("preserves the raw outcome text verbatim in the evidence description", async () => {
+  it("preserves the raw outcome text verbatim on the Experiment, separate from the observedFact Evidence", async () => {
     const exp = await createExperiment(repo);
-    const rawText =
+    const rawNarrative =
       "On Aug 12, I was NOT invited to the strategy meeting. " +
-      "My colleague Jane was invited instead. This felt deliberate.";
+      "My colleague Jane was invited instead. This felt deliberate " +
+      "and confirms my suspicion that I'm being sidelined.";
+    const observedFact = "I was not invited to the strategy meeting on Aug 12.";
     const result = await engine.recordExperimentOutcome(
       exp,
-      rawText,
+      rawNarrative,
+      observedFact,
       "supports",
       repo,
       USER_ID,
     );
 
-    expect(result.experiment.outcome).toBe(rawText);
-    expect(result.evidence!.description).toBe(rawText);
+    // Raw narrative preserved verbatim on the experiment
+    expect(result.experiment.outcome).toBe(rawNarrative);
+    // Only the observedFact becomes fact-grade Evidence — not the narrative
+    expect(result.evidence!.description).toBe(observedFact);
+    expect(result.evidence!.description).not.toBe(rawNarrative);
   });
 
   it("rejects double-recording an outcome on the same experiment", async () => {
     const exp = await createExperiment(repo);
     await engine.recordExperimentOutcome(
       exp,
-      "First outcome",
+      "First outcome.",
+      "First observed fact.",
       "supports",
       repo,
       USER_ID,
@@ -864,7 +877,8 @@ describe("Stage E: recordExperimentOutcome()", () => {
     await expect(
       engine.recordExperimentOutcome(
         exp,
-        "Second outcome",
+        "Second outcome.",
+        "Second observed fact.",
         "contradicts",
         repo,
         USER_ID,
@@ -885,7 +899,8 @@ describe("Stage E: recordExperimentOutcome()", () => {
 
     await engine.recordExperimentOutcome(
       exp,
-      "Supporting outcome observed",
+      "Supporting outcome observed.",
+      "I observed the supporting signal.",
       "supports",
       repo,
       USER_ID,
@@ -905,7 +920,8 @@ describe("Stage E: recordExperimentOutcome()", () => {
     const exp = await createExperiment(repo);
     const result = await engine.recordExperimentOutcome(
       exp,
-      "Observed: excluded from meeting",
+      "I was excluded from the meeting.",
+      "I was not invited to the Q3 strategy meeting.",
       "supports",
       repo,
       USER_ID,
@@ -915,5 +931,97 @@ describe("Stage E: recordExperimentOutcome()", () => {
     // can carry fact-grade epistemic status.
     expect(result.evidence!.epistemicType).toBe("fact");
     expect(result.evidence!.sourceType).toBe("observed_outcome");
+  });
+
+  // ── Schema validation: observedFact required for supports/contradicts ──
+
+  it("recordOutcomeSchema requires observedFact for supports", () => {
+    const result = recordOutcomeSchema.safeParse({
+      outcomeText: "I was excluded again.",
+      classification: "supports",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("recordOutcomeSchema requires observedFact for contradicts", () => {
+    const result = recordOutcomeSchema.safeParse({
+      outcomeText: "I was included this time.",
+      classification: "contradicts",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("recordOutcomeSchema does not require observedFact for inconclusive", () => {
+    const result = recordOutcomeSchema.safeParse({
+      outcomeText: "No meetings happened.",
+      classification: "inconclusive",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("recordOutcomeSchema accepts observedFact for supports", () => {
+    const result = recordOutcomeSchema.safeParse({
+      outcomeText: "I was excluded again because she doesn't trust me.",
+      observedFact: "I was not invited to the roadmap planning meeting.",
+      classification: "supports",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("recordOutcomeSchema rejects empty-string observedFact for supports", () => {
+    const result = recordOutcomeSchema.safeParse({
+      outcomeText: "I was excluded again.",
+      observedFact: "   ",
+      classification: "supports",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // ── Atomicity: failed experiment update cannot leave orphaned Evidence ──
+
+  it("atomic repo method does not create orphaned Evidence when experiment is not found", async () => {
+    const result = await repo.recordExperimentOutcomeAtomic(
+      USER_ID,
+      "nonexistent-experiment-id",
+      {
+        outcome: "Some outcome.",
+        outcomeClassification: "supports",
+        observedFact: "Some observed fact.",
+      },
+    );
+
+    expect(result).toBeNull();
+    // No evidence should have been created
+    const allEvidence = await repo.listEvidence(USER_ID);
+    expect(allEvidence).toHaveLength(0);
+  });
+
+  it("atomic repo method does not create orphaned Evidence when experiment already has an outcome", async () => {
+    const exp = await createExperiment(repo);
+
+    // Record a first outcome
+    await repo.recordExperimentOutcomeAtomic(USER_ID, exp.id, {
+      outcome: "First outcome.",
+      outcomeClassification: "supports",
+      observedFact: "First observed fact.",
+    });
+
+    // Attempt a second atomic recording
+    const result = await repo.recordExperimentOutcomeAtomic(
+      USER_ID,
+      exp.id,
+      {
+        outcome: "Second outcome.",
+        outcomeClassification: "contradicts",
+        observedFact: "Second observed fact.",
+      },
+    );
+
+    expect(result).toBeNull();
+
+    // Only the first evidence should exist — no orphan from the second attempt
+    const allEvidence = await repo.listEvidence(USER_ID);
+    expect(allEvidence).toHaveLength(1);
+    expect(allEvidence[0].description).toBe("First observed fact.");
   });
 });

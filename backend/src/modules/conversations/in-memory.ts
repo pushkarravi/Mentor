@@ -544,27 +544,53 @@ export class InMemoryConversationRepository
     );
   }
 
-  async recordExperimentOutcome(
+  async recordExperimentOutcomeAtomic(
     userId: string,
     experimentId: string,
     data: {
       outcome: string;
       outcomeClassification: OutcomeClassification;
-      evidenceId: string | null;
+      observedFact: string | null;
     },
-  ): Promise<ExperimentData | null> {
+  ): Promise<{
+    experiment: ExperimentData;
+    evidence: EvidenceData | null;
+  } | null> {
+    // ── Atomic boundary ──────────────────────────────────────────
+    // In the in-memory implementation, these steps are synchronous
+    // and cannot partially fail. A Prisma implementation MUST wrap
+    // them in $transaction to guarantee the same atomicity.
     const exp = this.experiments.find(
       (e) => e.id === experimentId && e.userId === userId,
     );
     if (!exp || exp.outcome !== null) return null;
 
     const now = new Date().toISOString();
+
+    // For supports/contradicts, create the observed_outcome Evidence
+    // from the user's observedFact (not the raw narrative).
+    let evidence: EvidenceData | null = null;
+    if (
+      (data.outcomeClassification === "supports" ||
+        data.outcomeClassification === "contradicts") &&
+      data.observedFact
+    ) {
+      evidence = await this.addEvidence(userId, {
+        sourceType: "observed_outcome",
+        epistemicType: "fact",
+        description: data.observedFact,
+      });
+    }
+
+    // Update the experiment with the raw outcome, classification,
+    // and evidenceId.
     exp.outcome = data.outcome;
     exp.outcomeClassification = data.outcomeClassification;
-    exp.outcomeEvidenceId = data.evidenceId;
+    exp.outcomeEvidenceId = evidence?.id ?? null;
     exp.outcomeRecordedAt = now;
     exp.status = "completed";
     exp.updatedAt = now;
-    return exp;
+
+    return { experiment: exp, evidence };
   }
 }

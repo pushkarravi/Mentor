@@ -130,6 +130,7 @@ export function experimentRoutes(
       const result = await engine.recordExperimentOutcome(
         exp,
         parsed.data.outcomeText,
+        parsed.data.observedFact ?? null,
         parsed.data.classification,
         repo,
         userId,

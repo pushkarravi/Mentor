@@ -233,21 +233,38 @@ n   * contradict another — links are per-pair.
   ): Promise<ExperimentData[]>;
 
   /**
-   * Records an outcome on an experiment. Marks the experiment as
-   * completed, stores the raw outcome text, classification, and
-   * optional evidenceId linking to the observed_outcome Evidence
-   * record. Does NOT reassess the hypothesis — that is Stage F.
+   * Atomically records an outcome on an experiment. This is the
+   * single persistence boundary for Stage E — the engine must not
+   * orchestrate separate addEvidence + update calls that could
+   * leave orphaned Evidence if the experiment update fails.
    *
-   * Returns the updated experiment, or null if the experiment was
-   * not found or already has a recorded outcome.
+   * For supports/contradicts:
+   *   validate experiment has no outcome → create observed_outcome
+   *   Evidence (from observedFact) → update experiment with raw
+   *   outcome/classification/evidenceId → commit.
+   *
+   * For inconclusive:
+   *   validate experiment has no outcome → update experiment only
+   *   → commit. No Evidence is created.
+   *
+   * A future Prisma implementation MUST perform this using
+   * $transaction. The in-memory implementation performs the steps
+   * synchronously (no partial failure possible).
+   *
+   * Returns the updated experiment and the created Evidence (or
+   * null for inconclusive), or null if the experiment was not found
+   * or already has a recorded outcome.
    */
-  recordExperimentOutcome(
+  recordExperimentOutcomeAtomic(
     userId: string,
     experimentId: string,
     data: {
       outcome: string;
       outcomeClassification: OutcomeClassification;
-      evidenceId: string | null;
+      observedFact: string | null;
     },
-  ): Promise<ExperimentData | null>;
+  ): Promise<{
+    experiment: ExperimentData;
+    evidence: EvidenceData | null;
+  } | null>;
 }

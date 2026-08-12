@@ -636,33 +636,53 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
    * recordExperimentOutcome — records what actually happened when the
    * user carried out an experiment. The flow is:
    *
-   * 1. The user provides raw outcome text and an explicit classification
-   *    (supports / contradicts / inconclusive).
-   * 2. For supports or contradicts, an observed_outcome Evidence record
-   *    is created with epistemic_type: "fact" — an observed outcome is
-   *    the only source type that can carry fact-grade epistemic status
-   *    (Invariant #2). The evidence description preserves the user's
-   *    raw outcome text.
-   * 3. For inconclusive, no Evidence record is created — an inconclusive
-   *    experiment does not produce new evidence.
-   * 4. The experiment is marked completed with the outcome text,
-   *    classification, and timestamp.
-   * 5. STOP. No hypothesis reassessment happens here — that is Stage F.
+   * 1. The user provides:
+   *    - outcomeText: the raw, unedited narrative (may contain
+   *      interpretations, emotions, assumptions).
+   *    - observedFact: a normalized factual observation distilled from
+   *      the narrative (e.g. "I was not invited to the roadmap
+   *      planning meeting on Aug 12"). Required for supports/
+   *      contradicts; not required for inconclusive.
+   *    - classification: supports / contradicts / inconclusive.
+   *
+   * 2. The engine delegates to recordExperimentOutcomeAtomic on the
+   *    repo — a single transaction boundary. The repo creates the
+   *    observed_outcome Evidence (from observedFact, not outcomeText)
+   *    and updates the experiment in one atomic operation. This
+   *    prevents orphaned Evidence if the experiment update fails.
+   *
+   * 3. For supports/contradicts, an observed_outcome Evidence record
+   *    is created from observedFact with epistemic_type: "fact" — an
+   *    observed outcome is the only source type that can carry
+   *    fact-grade epistemic status (Invariant #2). The raw outcomeText
+   *    is preserved verbatim on the Experiment but is NOT used as the
+   *    Evidence description — narrative text may contain
+   *    interpretations and must not be silently treated as fact.
+   *
+   * 4. For inconclusive, no Evidence record is created.
+   *
+   * 5. STOP. No hypothesis reassessment happens here — that is
+   *    Stage F.
    *
    * Key constraints:
-   * - The classification is user-supplied, not auto-inferred. M0 does
-   *   not auto-classify outcomes.
+   * - The classification and observedFact are user-supplied, not
+   *   auto-inferred. M0 does not auto-classify outcomes or
+   *   auto-extract facts from narrative. AI inference must not
+   *   silently manufacture the fact (Invariant #1, #12).
    * - observed_outcome + fact is the one valid exception to the
    *   ai_inference→fact prohibition (validateEpistemicPair allows it
    *   because sourceType is observed_outcome, not ai_inference).
-   * - The raw outcome text is preserved verbatim in the Evidence
-   *    description — no paraphrasing or summarization.
-   * - The experiment must exist and must not already have a recorded
-   *    outcome. Re-recording is not supported in M0.
+   * - The raw outcome text is preserved verbatim on the Experiment.
+   *   Only the observedFact becomes fact-grade Evidence.
+   * - The experiment must not already have a recorded outcome.
+   *   Re-recording is not supported in M0.
+   * - The entire persistence operation (Evidence creation + experiment
+   *   update) is atomic — delegated to the repo's single method.
    */
   async recordExperimentOutcome(
     experiment: ExperimentData,
     outcomeText: string,
+    observedFact: string | null,
     classification: OutcomeClassification,
     repo: ConversationRepository,
     userId: string,
@@ -675,40 +695,30 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       );
     }
 
-    // For supports/contradicts, create an observed_outcome Evidence
-    // record. The raw outcome text is preserved verbatim.
-    let evidence: EvidenceData | null = null;
-
-    if (classification === "supports" || classification === "contradicts") {
-      evidence = await repo.addEvidence(userId, {
-        sourceType: "observed_outcome",
-        epistemicType: "fact",
-        description: outcomeText,
-      });
-    }
-
-    // Mark the experiment completed with the outcome and classification.
-    const updated = await repo.recordExperimentOutcome(
+    // Delegate the entire persistence operation to the repo's
+    // atomic method. The engine does not orchestrate separate
+    // addEvidence + updateExperiment calls.
+    const result = await repo.recordExperimentOutcomeAtomic(
       userId,
       experiment.id,
       {
         outcome: outcomeText,
         outcomeClassification: classification,
-        evidenceId: evidence?.id ?? null,
+        observedFact,
       },
     );
 
-    if (!updated) {
+    if (!result) {
       throw new OutcomeError(
         "Failed to record the experiment outcome — the experiment " +
-          "could not be updated.",
+          "could not be found or already has a recorded outcome.",
       );
     }
 
     return {
-      experiment: updated,
+      experiment: result.experiment,
       classification,
-      evidence,
+      evidence: result.evidence,
     };
   }
 

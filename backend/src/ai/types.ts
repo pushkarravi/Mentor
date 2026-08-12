@@ -268,9 +268,10 @@ export type OutcomeClassification = "supports" | "contradicts" | "inconclusive";
 
 /**
  * ExperimentOutcomeResult — the return value of
- * recordExperimentOutcome(). Contains the updated experiment, the
- * classification, and (if created) the new observed_outcome Evidence
- * record.
+ * recordExperimentOutcome(). Contains the updated experiment (with
+ * raw outcomeText preserved verbatim), the classification, and (if
+ * created) the new observed_outcome Evidence record (created from
+ * the user's observedFact, not the raw narrative).
  *
  * No hypothesis reassessment happens here — that is Stage F.
  */

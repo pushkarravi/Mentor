@@ -192,11 +192,40 @@ export const outcomeClassificationSchema = z.enum([
 
 /**
  * Schema for recording a manually entered experiment outcome.
- * The user provides the raw outcome text and an explicit
- * classification. The engine does not auto-classify in M0 — the
- * user decides which signal was observed.
+ *
+ * The user provides:
+ * - outcomeText: the raw, unedited narrative of what happened.
+ *   This is preserved verbatim on the Experiment record. It may
+ *   contain interpretations, emotions, and assumptions — it is
+ *   NOT treated as fact-grade evidence.
+ * - observedFact: a normalized factual observation distilled from
+ *   the narrative (e.g. "I was not invited to the roadmap planning
+ *   meeting on Aug 12"). Required for supports/contradicts — this
+ *   is what becomes the observed_outcome Evidence record with
+ *   epistemic_type: fact. Not required for inconclusive.
+ * - classification: supports / contradicts / inconclusive.
+ *
+ * The engine does not auto-classify or auto-extract the fact in
+ * M0 — the user explicitly provides or confirms the factual
+ * observation. AI inference must not silently manufacture the fact.
  */
 export const recordOutcomeSchema = z.object({
   outcomeText: z.string().min(1, "Outcome description is required."),
+  observedFact: z.string().optional(),
   classification: outcomeClassificationSchema,
+}).superRefine((data, ctx) => {
+  if (
+    (data.classification === "supports" ||
+      data.classification === "contradicts") &&
+    (!data.observedFact || data.observedFact.trim().length === 0)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["observedFact"],
+      message:
+        "A factual observation is required when the outcome supports " +
+        "or contradicts the hypothesis. Describe the observable event " +
+        "separately from your interpretation of it.",
+    });
+  }
 });
