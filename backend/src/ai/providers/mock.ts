@@ -20,7 +20,8 @@ export class MockProvider implements AIProvider {
     const userText = lastUserMessage?.content ?? "";
 
     // Produce a placeholder claim analysis — structurally correct,
-    // but not genuine reasoning.
+    // but not genuine reasoning. Includes "assumption" to exercise
+    // the full six-category ClaimComponentType.
     const claimAnalysis = {
       components: [
         {
@@ -30,6 +31,10 @@ export class MockProvider implements AIProvider {
         {
           type: "interpretation" as const,
           text: "[Mock] The user's reading of why this is happening.",
+        },
+        {
+          type: "assumption" as const,
+          text: "[Mock] An unstated belief the user is operating under.",
         },
         {
           type: "emotion" as const,

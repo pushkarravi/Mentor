@@ -8,13 +8,13 @@ import type {
   ConfidenceCategory,
   EpistemicType,
   EvidenceSummary,
-  ExperimentProposal,
-  HypothesisAssessment,
-  MemoryCandidate,
   MessageData,
   ReasoningLens,
   SourceType,
 } from "../types.js";
+import {
+  claimAnalysisResponseSchema,
+} from "../../api/schemas.js";
 import {
   assembleSystemPrompt,
   formatCareerContext,
@@ -52,9 +52,15 @@ export function validateEpistemicPair(
  * Compute a qualitative confidence category from evidence counts.
  * No fake precision — tentative/moderate/strong only.
  *
- * The thresholds are deliberately conservative:
- * - tentative: fewer than 2 supporting items, or any contradicting
- *   evidence that hasn't been offset
+ * NOTE: This is an intentionally provisional M0 heuristic based primarily
+ * on evidence counts (supporting vs. contradicting), not a mature
+ * evidentiary-strength model. It does not weight evidence by source type,
+ * recency, or specificity. A more sophisticated model that considers
+ * evidence quality — not just quantity — should replace this before the
+ * product claims to reason carefully about confidence.
+ *
+ * Current thresholds (deliberately conservative):
+ * - tentative: fewer than 2 supporting items, or contradicting >= supporting
  * - moderate: at least 2 supporting, supporting > contradicting
  * - strong: at least 3 supporting, supporting > 2x contradicting, and
  *   at least one observed_outcome among the supporting evidence
@@ -148,32 +154,32 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       system: systemPrompt,
     });
 
-    // If the provider returned structured data, use it
-    if (result.structured && "components" in result.structured) {
-      const s = result.structured as {
-        components: Array<{ type: EpistemicType; text: string }>;
-        summary: string;
-      };
-      return {
-        components: s.components,
-        summary: s.summary,
-      };
+    // Validate model output against the claim-analysis Zod schema.
+    // Try structured data first, then JSON-parsed content.
+    const candidates: unknown[] = [];
+    if (result.structured) {
+      candidates.push(result.structured);
     }
-
-    // Try to parse JSON from content
     try {
-      const parsed = JSON.parse(result.content) as {
-        components: Array<{ type: EpistemicType; text: string }>;
-        summary: string;
-      };
-      if (parsed.components && parsed.summary) {
-        return parsed;
-      }
+      candidates.push(JSON.parse(result.content));
     } catch {
-      // Not JSON — fall through to placeholder
+      // content is not JSON — that's fine, try the next candidate
     }
 
-    // MockProvider / fallback: structurally correct placeholder
+    for (const candidate of candidates) {
+      const parsed = claimAnalysisResponseSchema.safeParse(candidate);
+      if (parsed.success) {
+        return {
+          components: parsed.data.components.map((c) => ({
+            type: c.type,
+            text: c.text,
+          })),
+          summary: parsed.data.summary,
+        };
+      }
+    }
+
+    // MockProvider or unparseable output: structurally correct placeholder.
     return {
       components: [
         {
@@ -249,61 +255,5 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
 
     const result = await this.provider.chat({ messages, system });
     return result.content;
-  }
-
-  // ── M0 methods (full implementations in later stages) ──────────────
-
-  /**
-   * evaluateHypothesis — assesses a hypothesis using supporting evidence,
-   * contradicting evidence, and untested assumptions. Produces a
-   * qualitative confidence category with evidence counts.
-   *
-   * Full implementation in Stage C.
-   */
-  async evaluateHypothesis(
-    _hypothesisId: string,
-  ): Promise<HypothesisAssessment> {
-    throw new Error("evaluateHypothesis is implemented in Stage C");
-  }
-
-  /**
-   * recommendExperiment — proposes a testable experiment linked to a
-   * hypothesis, with a success signal and review point.
-   *
-   * Full implementation in Stage D.
-   */
-  async recommendExperiment(
-    _hypothesisId: string,
-  ): Promise<ExperimentProposal> {
-    throw new Error("recommendExperiment is implemented in Stage D");
-  }
-
-  /**
-   * reviewExperimentOutcome — re-evaluates a hypothesis when an experiment
-   * outcome is recorded, updating the confidence category based on new
-   * evidence.
-   *
-   * Full implementation in Stage F.
-   */
-  async reviewExperimentOutcome(
-    _experimentId: string,
-    _outcome: string,
-  ): Promise<HypothesisAssessment> {
-    throw new Error("reviewExperimentOutcome is implemented in Stage F");
-  }
-
-  /**
-   * extractMemoryCandidates — proposes candidate structured records from
-   * a conversation turn. Each candidate carries full epistemic/source
-   * typing and a reason-to-save. Nothing is persisted without user
-   * confirmation.
-   *
-   * Full implementation in Stage B.
-   */
-  async extractMemoryCandidates(
-    _messages: MessageData[],
-    _claimAnalysis: ClaimAnalysis,
-  ): Promise<MemoryCandidate[]> {
-    throw new Error("extractMemoryCandidates is implemented in Stage B");
   }
 }

@@ -3,11 +3,12 @@
 
 export type ReasoningLens = "coach" | "challenger" | "decision_advisor";
 
-export type EpistemicType =
+export type ClaimComponentType =
   | "fact"
   | "interpretation"
-  | "hypothesis"
+  | "assumption"
   | "emotion"
+  | "hypothesis"
   | "action";
 
 export interface CareerContext {
@@ -18,7 +19,7 @@ export interface CareerContext {
 }
 
 export interface ClaimComponent {
-  type: EpistemicType;
+  type: ClaimComponentType;
   text: string;
 }
 

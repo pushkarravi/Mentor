@@ -15,6 +15,22 @@ export type EpistemicType =
   | "emotion"
   | "action";
 
+/**
+ * ClaimComponentType — the six epistemic categories used in claim analysis.
+ * This is a superset of EpistemicType: it adds "assumption", which is
+ * recognized during claim decomposition but is not a persistable
+ * epistemic_type for Evidence/Memory records. Assumptions are surfaced
+ * to the user as reasoning context but are not stored as standalone
+ * evidence.
+ */
+export type ClaimComponentType =
+  | "fact"
+  | "interpretation"
+  | "assumption"
+  | "emotion"
+  | "hypothesis"
+  | "action";
+
 export type ConfidenceCategory = "tentative" | "moderate" | "strong";
 
 export type ExperimentStatus = "proposed" | "active" | "completed" | "abandoned";
@@ -46,7 +62,7 @@ export interface ChatResult {
 // ── Claim analysis (output of analyzeClaim) ────────────────────────────
 
 export interface ClaimComponent {
-  type: EpistemicType;
+  type: ClaimComponentType;
   text: string;
 }
 

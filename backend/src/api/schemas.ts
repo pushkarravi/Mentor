@@ -17,6 +17,18 @@ export const epistemicTypeSchema = z.enum([
   "action",
 ]);
 
+// Claim analysis uses six categories — includes "assumption" which is not
+// a persistable epistemic_type for Evidence/Memory but is recognized
+// during claim decomposition.
+export const claimComponentTypeSchema = z.enum([
+  "fact",
+  "interpretation",
+  "assumption",
+  "emotion",
+  "hypothesis",
+  "action",
+]);
+
 export const confidenceCategorySchema = z.enum([
   "tentative",
   "moderate",
@@ -54,7 +66,7 @@ export const sendMessageSchema = z.object({
 export const claimAnalysisResponseSchema = z.object({
   components: z.array(
     z.object({
-      type: epistemicTypeSchema,
+      type: claimComponentTypeSchema,
       text: z.string(),
     }),
   ),
