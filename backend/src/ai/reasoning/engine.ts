@@ -836,22 +836,61 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
 
     let prospectiveLinks = existingLinks;
 
-    if (linkType !== null && newEvidenceId !== null) {
-      const newEvidence = await repo.getEvidence(userId, newEvidenceId);
-      if (newEvidence) {
-        const prospectiveLink: HypothesisEvidenceLink = {
-          id: "prospective-" + newEvidenceId,
-          userId,
-          hypothesisId: hypothesis.id,
-          evidenceId: newEvidenceId,
-          linkType,
-          createdAt: new Date().toISOString(),
-        };
-        prospectiveLinks = [
-          ...existingLinks,
-          { link: prospectiveLink, evidence: newEvidence },
-        ];
+    if (linkType !== null) {
+      // ── Corrupted-state guard ──────────────────────────────────
+      // For supports/contradicts, outcomeEvidenceId must be non-null
+      // and the Evidence record must exist. If it doesn't, this is
+      // corrupted state — throw a controlled ReviewError. Do NOT
+      // silently fall through to the inconclusive branch.
+      if (newEvidenceId === null) {
+        throw new ReviewError(
+          "Cannot review this experiment: the outcome is classified as " +
+            `${classification} but has no linked outcome evidence. " +
+            "This is corrupted state — the experiment's outcomeEvidenceId " +
+            "is null despite a non-inconclusive classification.`,
+        );
       }
+
+      const newEvidence = await repo.getEvidence(userId, newEvidenceId);
+      if (!newEvidence) {
+        throw new ReviewError(
+          "Cannot review this experiment: the outcome evidence record " +
+            `(id: ${newEvidenceId}) could not be found. This is " +
+            "corrupted state — the evidence was deleted or never created.`,
+        );
+      }
+
+      // ── Evidence integrity verification ────────────────────────
+      // The outcome Evidence must be sourceType: observed_outcome and
+      // epistemicType: fact. An observed outcome is the only source
+      // type that can carry fact-grade epistemic status (Invariant #2).
+      // If the Evidence has been tampered with or mis-typed, reject it.
+      if (
+        newEvidence.sourceType !== "observed_outcome" ||
+        newEvidence.epistemicType !== "fact"
+      ) {
+        throw new ReviewError(
+          "Cannot review this experiment: the outcome evidence record " +
+            "has an invalid type. Expected sourceType observed_outcome " +
+            "and epistemicType fact, but found " +
+            `sourceType ${newEvidence.sourceType} and ` +
+            `epistemicType ${newEvidence.epistemicType}. ` +
+            "This is corrupted state.",
+        );
+      }
+
+      const prospectiveLink: HypothesisEvidenceLink = {
+        id: "prospective-" + newEvidenceId,
+        userId,
+        hypothesisId: hypothesis.id,
+        evidenceId: newEvidenceId,
+        linkType,
+        createdAt: new Date().toISOString(),
+      };
+      prospectiveLinks = [
+        ...existingLinks,
+        { link: prospectiveLink, evidence: newEvidence },
+      ];
     }
 
     // ── 5. Evaluate prospectively ──────────────────────────────────
@@ -867,48 +906,29 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
     const newUntestedAssumptions = newAssessment.evidence.untestedAssumptions;
 
     // ── 6. Persist atomically ──────────────────────────────────────
-    // The repo creates the link + updates the hypothesis + marks the
-    // experiment reviewed in one transaction. No partial state.
-    if (linkType === null || newEvidenceId === null) {
-      // Inconclusive: no link, no hypothesis update, mark reviewed only.
-      // We still persist the review marker to prevent duplicate reviews.
-      // Confidence and rationale are unchanged — we persist the same
-      // values to keep the transaction shape consistent.
-      const result = await repo.applyExperimentOutcomeReviewAtomic(
-        userId,
-        experiment.id,
-        {
-          hypothesisId: hypothesis.id,
-          evidenceId: null,
-          linkType: null,
-          newConfidence: previousConfidence,
-          newAssessmentRationale: previousRationale ?? newRationale,
-        },
+    // The repo derives ALL relationship-sensitive values (hypothesisId,
+    // evidenceId, linkType) from the stored experiment — the caller
+    // cannot supply them. This prevents the caller from linking the
+    // outcome to the wrong hypothesis or creating a link whose
+    // direction contradicts the experiment's classification.
+    //
+    // The repo also validates that the outcome Evidence (if linked)
+    // is sourceType: observed_outcome / epistemicType: fact. If not,
+    // the transaction is rejected as corrupted state.
+    const result = await repo.applyExperimentOutcomeReviewAtomic(
+      userId,
+      experiment.id,
+      {
+        newConfidence,
+        newAssessmentRationale: newRationale,
+      },
+    );
+    if (!result) {
+      throw new ReviewError(
+        "Failed to apply the experiment review — the experiment " +
+          "could not be found, has already been reviewed, or the " +
+          "outcome evidence is in a corrupted state.",
       );
-      if (!result) {
-        throw new ReviewError(
-          "Failed to apply the experiment review — the experiment " +
-            "could not be found or has already been reviewed.",
-        );
-      }
-    } else {
-      const result = await repo.applyExperimentOutcomeReviewAtomic(
-        userId,
-        experiment.id,
-        {
-          hypothesisId: hypothesis.id,
-          evidenceId: newEvidenceId,
-          linkType,
-          newConfidence,
-          newAssessmentRationale: newRationale,
-        },
-      );
-      if (!result) {
-        throw new ReviewError(
-          "Failed to apply the experiment review — the experiment " +
-            "could not be found or has already been reviewed.",
-        );
-      }
     }
 
     // ── 7. Build the before/after delta + explanation ──────────────

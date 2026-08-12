@@ -274,14 +274,23 @@ n   * contradict another — links are per-pair.
    * confidence + assessment rationale, and marks the experiment as
    * reviewed. Single persistence boundary — no partial state.
    *
-   * For supports: create link(evidence → hypothesis, "supports"),
-   *   update hypothesis confidence + rationale, mark experiment
-   *   reviewed.
-   * For contradicts: create link(evidence → hypothesis, "contradicts"),
-   *   update hypothesis confidence + rationale, mark experiment
-   *   reviewed.
-   * For inconclusive: no link created, no hypothesis update, mark
-   *   experiment reviewed only.
+   * ALL relationship-sensitive values are derived from the stored
+   * Experiment itself — the caller cannot supply hypothesisId,
+   * evidenceId, or linkType. This prevents the caller from linking
+   * the outcome Evidence to the wrong hypothesis or creating a link
+   * whose direction contradicts the experiment's classification.
+   *
+   * Internal validation (within the transaction boundary):
+   * - hypothesisId is always experiment.hypothesisId
+   * - For supports: evidenceId is experiment.outcomeEvidenceId,
+   *   linkType is "supports"
+   * - For contradicts: evidenceId is experiment.outcomeEvidenceId,
+   *   linkType is "contradicts"
+   * - For inconclusive: evidenceId is null, linkType is null, no
+   *   link is created, no hypothesis update is persisted
+   * - The outcome Evidence (if linked) must be sourceType
+   *   "observed_outcome" and epistemicType "fact" — otherwise the
+   *   transaction is rejected as corrupted state
    *
    * Returns null if the experiment is not found, has no recorded
    * outcome, or has already been reviewed (idempotency guard).
@@ -292,9 +301,6 @@ n   * contradict another — links are per-pair.
     userId: string,
     experimentId: string,
     data: {
-      hypothesisId: string;
-      evidenceId: string | null;
-      linkType: "supports" | "contradicts" | null;
       newConfidence: ConfidenceCategory;
       newAssessmentRationale: string;
     },

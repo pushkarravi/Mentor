@@ -2,7 +2,7 @@
 
 All notable changes to Mentor are documented in this file.
 
-## [Unreleased] — M0 Stages A–F: Core Reasoning Loop
+## [Unreleased] — M0 Stages A–F: Core Reasoning Loop (structurally implemented)
 
 ### Added
 
@@ -74,6 +74,19 @@ All notable changes to Mentor are documented in this file.
   - Inconclusive outcomes create no link, no evidence, no confidence change
   - 20 dedicated Stage F tests covering all link types, confidence transitions,
     idempotency, atomicity, creationRationale preservation, and no-numeric-probability
+  - **Transaction-boundary integrity enforcement**: `applyExperimentOutcomeReviewAtomic`
+    derives ALL relationship-sensitive values (hypothesisId, evidenceId, linkType) from
+    the stored Experiment — the caller cannot supply them. The repo validates that
+    supports outcomes create only `supports` links, contradicts create only `contradicts`
+    links, inconclusive creates no link, and the outcome Evidence is
+    `sourceType: observed_outcome` + `epistemicType: fact`. Missing or mistyped Evidence
+    for supports/contradicts is treated as corrupted state and rejected — never silently
+    processed as inconclusive.
+  - 11 transaction-boundary rejection tests proving the repo and engine reject: wrong
+    hypothesis ID, wrong outcome Evidence ID, supports+contradicts link mismatch,
+    contradicts+supports link mismatch, inconclusive with evidence link, missing
+    outcomeEvidenceId for supports/contradicts, and non-observed_outcome/non-fact
+    outcome Evidence
 
 - **Frontend scaffold** (`apps/mobile/`): Expo + TypeScript + Expo Router
   - Career context capture screen (role, years, target outcome, why-not-yet)
@@ -105,16 +118,24 @@ docker compose up -d        # start local PostgreSQL
 npx prisma migrate dev --name m0_initial_schema
 ```
 
-### What works structurally vs. what still requires real-provider evaluation
+### Not yet implemented (deferred)
 
-The M0 loop is **structurally complete** — all stages (A through F) are implemented,
-the data flows correctly, persistence is atomic, epistemic invariants are enforced
-in code, and 127 unit tests verify the plumbing. However, **M0 reasoning quality
-is not yet proven**. Unit tests verify structure, not reasoning. The remaining
-acceptance step is Golden Career Scenarios evaluation against a real AIProvider.
+- **PostgreSQL integration**: schema migration not yet applied to a real database
+- **Golden Career Scenarios evaluation**: requires a real AIProvider — the acceptance step
+- **Auth**: M1 concern per architecture
+
+### M0 status
+
+**Structurally implemented, not yet product-validated.** The loop is closed and 138
+tests pass, but two acceptance steps remain: (1) apply the Prisma migration to real
+PostgreSQL and verify the repository contract holds, and (2) evaluate reasoning quality
+against Golden Career Scenarios with a real AIProvider. Do not begin M1 until both are
+complete.
 
 ### Not yet implemented (deferred)
 
-- Golden Career Scenarios evaluation (requires a real AIProvider — the acceptance step)
-- Prisma migration application (requires local PostgreSQL)
-- Auth (M1 concern per architecture)
+- **Prisma schema** (`backend/prisma/schema.prisma`): M0 subset including
+  `OutcomeClassification` enum and Stage E/F fields on `CareerExperiment`
+  (`outcomeClassification`, `outcomeEvidenceId`, `reviewedAt`) with an explicit
+  `Evidence` relation (`ExperimentOutcomeEvidence`). Schema written and validated
+  (`prisma generate` succeeds). **No migration applied** — no PostgreSQL available.

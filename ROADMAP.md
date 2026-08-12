@@ -30,7 +30,18 @@ Scope:
 - [ ] Local Postgres via Prisma; minimal schema — only the tables the loop actually needs
       (CareerContext, Person (optional, only if mentioned), Evidence, CareerHypothesis,
       CareerExperiment, Conversation, Message, Memory)
-      — schema is written and validated; migration not yet applied
+      — schema is written and validated (including Stage E/F fields and OutcomeClassification
+      enum); migration not yet applied; not yet product-validated against real PostgreSQL
+
+### M0 status
+
+**Structurally implemented, not yet product-validated.** All six stages (A–F) are
+implemented, the loop closes correctly, persistence is atomic, the transaction boundary
+protects relationship-sensitive values from caller manipulation, and 138 unit tests
+verify the plumbing. However, the schema migration has not been applied to a real
+PostgreSQL database, and the reasoning quality has not been evaluated against a real
+AIProvider. Both are required before M0 can be called product-validated. Do not begin
+M1 until both are complete.
 
 Explicitly NOT in M0 (moved to later milestones):
 - Full Situation Analysis workflow → M2

@@ -599,9 +599,6 @@ export class InMemoryConversationRepository
     userId: string,
     experimentId: string,
     data: {
-      hypothesisId: string;
-      evidenceId: string | null;
-      linkType: "supports" | "contradicts" | null;
       newConfidence: ConfidenceCategory;
       newAssessmentRationale: string;
     },
@@ -614,26 +611,74 @@ export class InMemoryConversationRepository
     // In the in-memory implementation, these steps are synchronous
     // and cannot partially fail. A Prisma implementation MUST wrap
     // them in $transaction to guarantee the same atomicity.
+    //
+    // ALL relationship-sensitive values are derived from the stored
+    // Experiment — the caller cannot supply hypothesisId, evidenceId,
+    // or linkType. This is the transaction-boundary enforcement of
+    // the authoritative-relationship invariant.
 
     const exp = this.experiments.find(
       (e) => e.id === experimentId && e.userId === userId,
     );
     if (!exp || exp.outcome === null || exp.reviewedAt !== null) return null;
 
+    // Derive hypothesisId from the experiment — never from the caller.
+    const hypothesisId = exp.hypothesisId;
+
     const hyp = this.hypotheses.find(
-      (h) => h.id === data.hypothesisId && h.userId === userId,
+      (h) => h.id === hypothesisId && h.userId === userId,
     );
     if (!hyp) return null;
 
+    const classification = exp.outcomeClassification;
     const now = new Date().toISOString();
+
+    // Derive linkType and evidenceId from the experiment's stored
+    // classification — never from the caller.
+    let linkType: "supports" | "contradicts" | null = null;
+    let evidenceId: string | null = null;
+
+    if (classification === "supports") {
+      linkType = "supports";
+      evidenceId = exp.outcomeEvidenceId;
+    } else if (classification === "contradicts") {
+      linkType = "contradicts";
+      evidenceId = exp.outcomeEvidenceId;
+    }
+    // inconclusive: linkType stays null, evidenceId stays null.
+
+    // ── Transaction-boundary validation ────────────────────────────
+    // For supports/contradicts, the outcome Evidence must exist and
+    // must be sourceType: observed_outcome / epistemicType: fact.
+    // If it doesn't, this is corrupted state — reject the transaction.
+    if (linkType !== null) {
+      if (evidenceId === null) {
+        // Corrupted state: supports/contradicts with no outcomeEvidenceId.
+        return null;
+      }
+      const outcomeEvidence = this.evidence.find(
+        (e) => e.id === evidenceId && e.userId === userId,
+      );
+      if (!outcomeEvidence) {
+        // Corrupted state: outcomeEvidenceId points to a missing record.
+        return null;
+      }
+      if (
+        outcomeEvidence.sourceType !== "observed_outcome" ||
+        outcomeEvidence.epistemicType !== "fact"
+      ) {
+        // Corrupted state: outcome Evidence is not observed_outcome/fact.
+        return null;
+      }
+    }
 
     // Create the Evidence→Hypothesis link if applicable.
     let link: HypothesisEvidenceLink | null = null;
-    if (data.linkType !== null && data.evidenceId !== null) {
+    if (linkType !== null && evidenceId !== null) {
       link = await this.addHypothesisEvidenceLink(userId, {
-        hypothesisId: data.hypothesisId,
-        evidenceId: data.evidenceId,
-        linkType: data.linkType,
+        hypothesisId,
+        evidenceId,
+        linkType,
       });
     }
 

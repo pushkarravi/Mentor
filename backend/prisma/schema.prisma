@@ -130,6 +130,7 @@ model Evidence {
   user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   person        Person?             @relation(fields: [personId], references: [id], onDelete: SetNull)
   hypothesisLinks HypothesisEvidence[]
+  experimentOutcomes CareerExperiment[] @relation("ExperimentOutcomeEvidence")
 
   @@index([userId])
   @@index([personId])
@@ -177,6 +178,16 @@ model HypothesisEvidence {
   @@index([evidenceId])
 }
 
+/// How a recorded experiment outcome relates to the hypothesis.
+/// - supports: the outcome matched the experiment's supportingSignal
+/// - contradicts: the outcome matched the experiment's contradictingSignal
+/// - inconclusive: the experiment did not meaningfully test the hypothesis
+enum OutcomeClassification {
+  supports
+  contradicts
+  inconclusive
+}
+
 model CareerExperiment {
   id            String           @id @default(cuid())
   userId        String
@@ -188,13 +199,34 @@ model CareerExperiment {
   rationale     String
   reviewDate    DateTime?
   status        ExperimentStatus @default(proposed)
+
+  /// Stage E: raw outcome narrative, preserved verbatim.
   outcome       String?
-  outcomeRecordedAt DateTime?
+
+  /// Stage E: user-supplied classification of the outcome.
+  outcomeClassification OutcomeClassification?
+
+  /// Stage E: ID of the observed_outcome Evidence created from the
+  /// user's observedFact. Null for inconclusive outcomes.
+  outcomeEvidenceId     String?
+
+  /// Stage E: when the user recorded the outcome.
+  outcomeRecordedAt     DateTime?
+
+  /// Stage F: when the engine reviewed the outcome and reassessed
+  /// the hypothesis. Null until reviewExperimentOutcome() has run.
+  /// Used for idempotency — a second review is rejected.
+  reviewedAt            DateTime?
+
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
 
   user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   hypothesis CareerHypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+
+  /// The observed_outcome Evidence created from the user's
+  /// observedFact (Stage E). Null for inconclusive outcomes.
+  outcomeEvidence Evidence? @relation("ExperimentOutcomeEvidence", fields: [outcomeEvidenceId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([hypothesisId])

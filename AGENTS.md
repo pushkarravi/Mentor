@@ -193,7 +193,7 @@ _(Update this section every milestone.)_
   `epistemic_type: fact`). Supports/contradicts require `observedFact`; inconclusive does
   not. Persistence is atomic — `recordExperimentOutcomeAtomic` on the repo creates Evidence
   + updates the experiment in one transaction. No orphaned Evidence possible.
-- **M0 Stage F complete (structurally)** — The core M0 loop is closed:
+- **M0 Stage F structurally implemented** — The core M0 loop is closed:
   context → conversation → evidence → hypothesis → experiment → outcome → updated hypothesis.
   `reviewExperimentOutcome()` links the outcome Evidence to the experiment's authoritative
   hypothesis (via `experiment.hypothesisId`, never LLM-inferred), re-evaluates using all
@@ -204,7 +204,14 @@ _(Update this section every milestone.)_
   supporting/contradicting counts, rationale, and a human-readable explanation).
   Idempotent — a second review call throws `ReviewError`. Confidence may stay the same.
   Strong confidence does not automatically set status to confirmed.
-  **127 tests passing** (typecheck, lint, tests all green; frontend typecheck green).
+  **Transaction-boundary integrity enforcement**: `applyExperimentOutcomeReviewAtomic`
+  derives ALL relationship-sensitive values (hypothesisId, evidenceId, linkType) from the
+  stored Experiment — the caller cannot supply them. The repo validates that supports
+  outcomes create only `supports` links, contradicts create only `contradicts` links,
+  inconclusive creates no link, and the outcome Evidence is `sourceType: observed_outcome`
+  + `epistemicType: fact`. Missing or mistyped Evidence for supports/contradicts is
+  treated as corrupted state and rejected — never silently processed as inconclusive.
+  **138 tests passing** (typecheck, lint, tests all green; frontend typecheck green).
 - **Backend** (`backend/`): Fastify + TypeScript + Prisma + Vitest + ESLint. AIProvider interface
   with MockProvider and PerplexityProvider. CareerReasoningEngine with `analyzeClaim()`,
   `respond()`, `extractMemoryCandidates()`, `evaluateHypothesis()`, `recommendExperiment()`,
@@ -226,37 +233,47 @@ _(Update this section every milestone.)_
   (narrative + observedFact + classification), and Stage F review delta display (before/after
   confidence, evidence counts, what-changed explanation).
 - **Prisma schema** (`backend/prisma/schema.prisma`): M0 subset written and validated
-  (`prisma generate` succeeds). **No migration has been applied** — `DATABASE_URL` was not
-  available in the build environment. To apply locally:
+  (`prisma generate` succeeds). Includes `OutcomeClassification` enum and Stage E/F fields
+  on `CareerExperiment` (`outcomeClassification`, `outcomeEvidenceId`, `reviewedAt`) with
+  an explicit `Evidence` relation (`ExperimentOutcomeEvidence`). **No migration has been
+  applied** — `DATABASE_URL` was not available in the build environment. To apply locally:
   `cd backend && docker compose up -d && npx prisma migrate dev --name m0_initial_schema`
 - **No auth** — M0 is localhost-only, single-user, per ARCHITECTURE.md § 2. Auth is documented as
   a future trigger, not implemented.
 - **No Bolt-specific code** — the repository is portable across Claude Code, Codex, Manus, etc.
 - Target remote: `https://github.com/pushkarravi/Mentor` (not yet pushed).
 
-### What works structurally vs. what still requires real-provider evaluation
+### M0 status: structurally implemented, not yet product-validated
 
-The M0 loop is **structurally complete** — all stages (A through F) are implemented, the data
-flows correctly from context through to updated hypothesis, persistence is atomic, epistemic
-invariants are enforced in code, and 127 unit tests verify the plumbing, validation, and
-edge cases. However, **M0 reasoning quality is not yet proven**. Unit tests verify structure,
-not reasoning. The `MockProvider` and `StubProvider` return deterministic placeholders, not
-genuine career reasoning. The following remain before M0 can be called complete:
+The M0 loop is **structurally implemented** — all stages (A through F) are implemented, the
+data flows correctly from context through to updated hypothesis, persistence is atomic,
+epistemic invariants are enforced in code, the transaction boundary protects
+relationship-sensitive values from caller manipulation, and 138 unit tests verify the
+plumbing, validation, edge cases, and integrity guards. However, **M0 is not yet
+product-validated**. Unit tests verify structure, not reasoning. The `MockProvider` and
+`StubProvider` return deterministic placeholders, not genuine career reasoning. The
+following remain before M0 can be called product-validated:
 
-1. **Golden Career Scenarios evaluation**: Manually exercise scenarios #1, #3, #4, #5, #8, #10
+1. **PostgreSQL integration**: Apply the M0 Prisma schema migration to a real PostgreSQL
+   database and verify the in-memory repository's contract holds against Prisma. The
+   schema is written and validates (`prisma generate` succeeds) but no migration has been
+   applied.
+2. **Golden Career Scenarios evaluation**: Manually exercise scenarios #1, #3, #4, #5, #8, #10
    from `evaluations/golden-career-scenarios.md` against the full reasoning loop using a real
-   AIProvider (Perplexity). Do not evaluate against MockProvider.
-2. **Prisma migration**: Apply the M0 schema to a real PostgreSQL database.
+   AIProvider (Perplexity). Do not evaluate against MockProvider. This is the acceptance
+   step for M0 reasoning quality — unit tests passing does not constitute proof.
 3. **Real-provider integration testing**: Verify that `analyzeClaim()`, `respond()`,
    `extractMemoryCandidates()`, and `recommendExperiment()` produce genuinely useful output
    with a real model, not just structurally valid output.
 
 ## Next Recommended Tasks
 
-1. **Prisma migration**: Apply the M0 schema migration locally once PostgreSQL is available.
+1. **PostgreSQL integration**: Apply the M0 Prisma schema migration to a real PostgreSQL
+   database. Verify the in-memory repository contract holds against Prisma.
 2. **Golden Career Scenarios evaluation**: Once a real AIProvider (Perplexity) is connected,
    manually exercise scenarios #1, #3, #4, #5, #8, #10 against the reasoning loop. Do not
    evaluate scenarios against MockProvider. This is the acceptance step for M0 reasoning
    quality — unit tests passing does not constitute proof.
 3. Push initial commits to `https://github.com/pushkarravi/Mentor`.
-4. After M0 is accepted via Golden Scenarios, begin M1 (Career Context expansion).
+4. After M0 is product-validated via PostgreSQL integration + Golden Scenarios, begin M1
+   (Career Context expansion). Do not begin M1 before M0 is product-validated.
