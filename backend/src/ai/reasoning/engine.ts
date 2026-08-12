@@ -10,6 +10,8 @@ import type {
   HypothesisAssessment,
   HypothesisData,
   HypothesisEvidenceLink,
+  ExperimentProposal,
+  ExperimentData,
   MessageData,
   ReasoningLens,
   SourceType,
@@ -17,6 +19,7 @@ import type {
 import {
   claimAnalysisResponseSchema,
   extractionResponseSchema,
+  experimentProposalResponseSchema,
 } from "../schemas.js";
 import {
   assembleSystemPrompt,
@@ -445,15 +448,20 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
   }
 
   /**
-   * Identifies plausible untested assumptions remaining for a hypothesis
-   * given its current linked evidence. With a real AIProvider this would
-   * use the model to reason about what assumptions the evidence base has
-   * not yet addressed. With a synthetic provider (the current default),
-   * it uses a deterministic fallback that checks for common gaps.
+   * Provisional M0 gap-detection heuristic. Checks the linked evidence
+   * for common structural gaps (no observed outcomes, balanced conflict,
+   * no evidence at all) and returns an explicit list of untested
+   * assumptions.
+   *
+   * This is NOT model-based assumption analysis — it is a deterministic
+   * rule set that runs identically regardless of provider. A future
+   * version may use the AIProvider to reason about domain-specific
+   * untested assumptions, but that code does not exist yet. Do not
+   * claim otherwise.
    *
    * Returns an explicit list — never a hard-coded zero. An empty list
-   * means no plausible untested assumptions were identified given the
-   * current evidence, not that assumptions are impossible.
+   * means the heuristic found no plausible untested assumptions given
+   * the current evidence, not that assumptions are impossible.
    */
   private identifyUntestedAssumptions(
     _hypothesis: HypothesisData,
@@ -617,5 +625,150 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
     }
 
     return parts.join(" ");
+  }
+
+  // ── Stage D: Experiment recommendation ──────────────────────────────
+
+  /**
+   * recommendExperiment — proposes a falsifiable experiment to test a
+   * hypothesis. The proposal includes a description, a concrete success
+   * signal that would be observable, a review date, and a rationale
+   * explaining why this experiment matters and what it would test.
+   *
+   * Key constraints:
+   * - The experiment must be falsifiable — it needs a success signal
+   *   that could plausibly NOT occur (Invariant #11).
+   * - The rationale must explain why this experiment matters: why,
+   *   with whom, toward what objective (Invariant #4).
+   * - The proposal is a recommendation only — the user decides whether
+   *   to create the experiment. No silent creation.
+   * - With a real AIProvider, the engine would use the model to reason
+   *   about the hypothesis, evidence, and career context to propose a
+   *   domain-specific experiment. With a synthetic provider, it falls
+   *   back to a deterministic template-based proposal.
+   */
+  async recommendExperiment(
+    hypothesis: HypothesisData,
+    assessment: HypothesisAssessment | null,
+    existingExperiments: ExperimentData[] | null,
+  ): Promise<ExperimentProposal> {
+    // If the provider is synthetic (Mock), use a deterministic fallback.
+    if (this.provider.metadata.isSynthetic) {
+      return this.deterministicExperimentProposal(
+        hypothesis,
+        assessment,
+        existingExperiments,
+      );
+    }
+
+    // With a real provider, ask the model to propose an experiment.
+    const systemPrompt =
+      "You are a career reasoning engine. Given a career hypothesis, its " +
+      "current evidence assessment, and any existing experiments, propose " +
+      "a single falsifiable experiment to test the hypothesis. " +
+      "The experiment must have a concrete, observable success signal — " +
+      "something that could plausibly NOT happen. Explain why this " +
+      "experiment matters and what objective it serves. " +
+      "Respond as JSON: { \"hypothesisId\": string, \"description\": string, " +
+      "\"successSignal\": string, \"reviewDate\": ISO date, \"rationale\": string }.";
+
+    const evidenceSummary = assessment
+      ? `Supporting: ${assessment.evidence.supporting}, ` +
+        `Contradicting: ${assessment.evidence.contradicting}, ` +
+        `Confidence: ${assessment.confidence}. ` +
+        `Untested assumptions: ${assessment.evidence.untestedAssumptions.join("; ") || "none identified"}.`
+      : "No assessment available — the hypothesis has not been evaluated yet.";
+
+    const existingSummary =
+      existingExperiments && existingExperiments.length > 0
+        ? `Existing experiments: ${existingExperiments
+            .map((e) => `"${e.description}" (status: ${e.status})`)
+            .join("; ")}.`
+        : "No existing experiments.";
+
+    const userPrompt =
+      `Hypothesis: "${hypothesis.statement}"\n` +
+      `Creation rationale: ${hypothesis.creationRationale}\n` +
+      `Current assessment: ${evidenceSummary}\n` +
+      `${existingSummary}\n\n` +
+      `Propose one falsifiable experiment. The review date should be ` +
+      `2-4 weeks from now. Respond as JSON only.`;
+
+    const result = await this.provider.chat({
+      messages: [
+        { role: "user", content: userPrompt },
+      ],
+      system: systemPrompt,
+    });
+
+    const parsed = JSON.parse(result.content) as Record<string, unknown>;
+    const proposal = experimentProposalResponseSchema.parse(parsed);
+
+    return proposal;
+  }
+
+  /**
+   * Deterministic fallback for experiment proposal when using a
+   * synthetic provider. Produces a template-based proposal that
+   * is clearly marked as deterministic — not a real AI recommendation.
+   *
+   * The proposal is still structured and falsifiable: it has a concrete
+   * success signal and a review date. It references the hypothesis
+   * statement and any untested assumptions from the assessment.
+   */
+  private deterministicExperimentProposal(
+    hypothesis: HypothesisData,
+    assessment: HypothesisAssessment | null,
+    existingExperiments: ExperimentData[] | null,
+  ): ExperimentProposal {
+    const reviewDate = new Date();
+    reviewDate.setDate(reviewDate.getDate() + 14);
+    const reviewDateStr = reviewDate.toISOString().split("T")[0]!;
+
+    // If there are existing experiments, note them in the rationale.
+    const existingNote =
+      existingExperiments && existingExperiments.length > 0
+        ? ` Note: ${existingExperiments.length} existing experiment(s) ` +
+          `already target this hypothesis — ensure this proposal ` +
+          `complements rather than duplicates them.`
+        : "";
+
+    // Use untested assumptions from the assessment if available.
+    const untestedNote =
+      assessment && assessment.evidence.untestedAssumptions.length > 0
+        ? ` This experiment targets the untested assumption: ` +
+          `"${assessment.evidence.untestedAssumptions[0]}"`
+        : " This experiment provides an initial test of the hypothesis.";
+
+    const description =
+      `Observe whether the pattern described in the hypothesis ` +
+      `occurs in a specific, time-bounded situation over the next ` +
+      `two weeks. Document concrete instances with dates and context.`;
+
+    const successSignal =
+      `At least one concrete, dated observation that either ` +
+      `confirms or disconfirms the hypothesis: ` +
+      `"${hypothesis.statement}"`;
+
+    const rationale =
+      `[Deterministic proposal] This experiment matters because the ` +
+      `hypothesis "${hypothesis.statement}" currently has ` +
+      (assessment
+        ? `confidence "${assessment.confidence}" with ` +
+          `${assessment.evidence.supporting} supporting and ` +
+          `${assessment.evidence.contradicting} contradicting evidence.`
+        : `no assessment yet.`) +
+      untestedNote +
+      ` The success signal is observable and falsifiable — ` +
+      `if no such observation occurs, the hypothesis is weakened.` +
+      existingNote;
+
+    return {
+      hypothesisId: hypothesis.id,
+      description,
+      successSignal,
+      reviewDate: reviewDateStr,
+      rationale,
+    };
   }
 }

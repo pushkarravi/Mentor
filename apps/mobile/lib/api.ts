@@ -11,6 +11,8 @@ import type {
   HypothesisDetail,
   HypothesisAssessment,
   LinkType,
+  Experiment,
+  ExperimentProposal,
 } from "./types";
 
 const API_BASE =
@@ -139,4 +141,35 @@ export const api = {
     request<HypothesisAssessment>(`/api/hypotheses/${id}/evaluate`, {
       method: "POST",
     }),
+
+  // ── Experiments (Stage D) ──────────────────────────────────────────
+
+  listExperiments: () => request<Experiment[]>("/api/experiments"),
+
+  getExperiment: (id: string) => request<Experiment>(`/api/experiments/${id}`),
+
+  listExperimentsByHypothesis: (hypothesisId: string) =>
+    request<Experiment[]>(`/api/hypotheses/${hypothesisId}/experiments`),
+
+  createExperiment: (
+    hypothesisId: string,
+    description: string,
+    successSignal: string,
+    reviewDate?: string | null,
+  ) =>
+    request<Experiment>("/api/experiments", {
+      method: "POST",
+      body: JSON.stringify({
+        hypothesisId,
+        description,
+        successSignal,
+        reviewDate: reviewDate ?? null,
+      }),
+    }),
+
+  recommendExperiment: (hypothesisId: string) =>
+    request<ExperimentProposal>(
+      `/api/hypotheses/${hypothesisId}/recommend-experiment`,
+      { method: "POST" },
+    ),
 };

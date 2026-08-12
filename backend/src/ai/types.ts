@@ -98,10 +98,13 @@ export interface EvidenceSummary {
   supporting: number;
   contradicting: number;
   /**
-   * Explicit list of untested assumption strings — not a hard-coded
-   * zero. The displayed count is derived from this array's length.
-   * An empty list means the engine found no plausible untested
-   * assumptions, not that assumptions are impossible.
+   * Transient list of untested assumption strings, recomputed on each
+   * evaluation call. Not persisted to the database — only
+   * lastAssessmentRationale (the narrative text) is stored. The
+   * displayed count is derived from this array's length at call time.
+   * An empty list means the heuristic found no plausible untested
+   * assumptions given the current evidence, not that assumptions are
+   * impossible.
    */
   untestedAssumptions: string[];
 }
@@ -176,13 +179,50 @@ export interface HypothesisEvidenceLink {
   createdAt: string;
 }
 
-// ── Experiment proposal (output of recommendExperiment) ────────────────
+// ── Career Experiment (Stage D) ──────────────────────────────────────────
 
+/**
+ * ExperimentData — a test designed to falsify or support a career
+ * hypothesis. Each experiment has a concrete success signal that,
+ * if observed, would move the hypothesis toward confirmation, and
+ * if not observed, would weaken it.
+ *
+ * Experiments are explicitly created by the user, not auto-created
+ * from AI suggestions. The engine can recommend a proposal, but the
+ * user decides whether to create it.
+ *
+ * Outcome recording and hypothesis reassessment are Stage E/F —
+ * not implemented here. The `outcome` and `outcomeRecordedAt` fields
+ * exist in the type for forward compatibility but remain null in
+ * Stage D.
+ */
+export interface ExperimentData {
+  id: string;
+  userId: string;
+  hypothesisId: string;
+  description: string;
+  successSignal: string;
+  /** ISO date string for when the user should review the outcome. */
+  reviewDate: string | null;
+  status: ExperimentStatus;
+  /** Recorded outcome — populated in Stage E, null in Stage D. */
+  outcome: string | null;
+  outcomeRecordedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * ExperimentProposal — the output of recommendExperiment().
+ * A proposed experiment with a description, success signal, review
+ * date, and rationale explaining why it matters. The user reviews
+ * this proposal and decides whether to create the experiment.
+ */
 export interface ExperimentProposal {
   hypothesisId: string;
   description: string;
   successSignal: string;
-  reviewDate: string; // ISO date
+  reviewDate: string;
   rationale: string;
 }
 

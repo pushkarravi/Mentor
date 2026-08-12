@@ -14,6 +14,7 @@ import type {
   HypothesisStatus,
   ConfidenceCategory,
   LinkType,
+  ExperimentData,
 } from "../../ai/types.js";
 
 /**
@@ -193,4 +194,37 @@ n   * contradict another — links are per-pair.
     link: HypothesisEvidenceLink;
     evidence: EvidenceData;
   }>>;
+
+  // ── Career Experiments (Stage D) ───────────────────────────────────
+
+  /**
+   * Creates an experiment tied to a hypothesis. The caller provides
+   * the description, success signal, and optional review date — this
+   * is an explicit user-approved action, not a silent side effect of
+   * AI recommendation.
+   *
+   * Initial status is "proposed". Outcome fields remain null —
+   * outcome recording is Stage E.
+   */
+  createExperiment(
+    userId: string,
+    data: {
+      hypothesisId: string;
+      description: string;
+      successSignal: string;
+      reviewDate?: string | null;
+    },
+  ): Promise<ExperimentData>;
+
+  getExperiment(
+    userId: string,
+    experimentId: string,
+  ): Promise<ExperimentData | null>;
+
+  listExperiments(userId: string): Promise<ExperimentData[]>;
+
+  listExperimentsByHypothesis(
+    userId: string,
+    hypothesisId: string,
+  ): Promise<ExperimentData[]>;
 }

@@ -171,6 +171,15 @@ export default function ContextScreen() {
             <Text style={styles.buttonTextSecondary}>View Hypotheses</Text>
           </Pressable>
         )}
+
+        {hasContext && (
+          <Pressable
+            style={[styles.button, styles.buttonSecondary]}
+            onPress={() => router.push("/experiments")}
+          >
+            <Text style={styles.buttonTextSecondary}>View Experiments</Text>
+          </Pressable>
+        )}
       </View>
     </ScrollView>
   );

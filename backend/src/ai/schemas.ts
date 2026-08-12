@@ -88,3 +88,20 @@ export const hypothesisStatusSchema = z.enum([
 ]);
 
 export const linkTypeSchema = z.enum(["supports", "contradicts"]);
+
+// ── Experiment (Stage D) ───────────────────────────────────────────────
+
+export const experimentStatusSchema = z.enum([
+  "proposed",
+  "active",
+  "completed",
+  "abandoned",
+]);
+
+export const experimentProposalResponseSchema = z.object({
+  hypothesisId: z.string(),
+  description: z.string().min(1),
+  successSignal: z.string().min(1),
+  reviewDate: z.string(),
+  rationale: z.string().min(1),
+});

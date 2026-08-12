@@ -21,6 +21,7 @@ export {
   extractionResponseSchema,
   hypothesisStatusSchema,
   linkTypeSchema,
+  experimentStatusSchema,
 } from "../ai/schemas.js";
 
 import {
@@ -30,6 +31,7 @@ import {
   confidenceCategorySchema,
   hypothesisStatusSchema,
   linkTypeSchema,
+  experimentStatusSchema,
 } from "../ai/schemas.js";
 
 // ── Career context (API input) ──────────────────────────────────────
@@ -129,4 +131,34 @@ export const hypothesisDetailResponseSchema = z.object({
       }),
     }),
   ),
+});
+
+// ── Experiment (Stage D) ───────────────────────────────────────────────
+
+export const createExperimentSchema = z.object({
+  hypothesisId: z.string().min(1),
+  description: z.string().min(1),
+  successSignal: z.string().min(1),
+  reviewDate: z.string().nullable().optional(),
+});
+
+export const experimentResponseSchema = z.object({
+  id: z.string(),
+  hypothesisId: z.string(),
+  description: z.string(),
+  successSignal: z.string(),
+  reviewDate: z.string().nullable(),
+  status: experimentStatusSchema,
+  outcome: z.string().nullable(),
+  outcomeRecordedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const experimentProposalResponseSchema = z.object({
+  hypothesisId: z.string(),
+  description: z.string(),
+  successSignal: z.string(),
+  reviewDate: z.string(),
+  rationale: z.string(),
 });

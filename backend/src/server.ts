@@ -7,6 +7,7 @@ import { InMemoryConversationRepository } from "./modules/conversations/in-memor
 import { conversationRoutes } from "./api/conversations.js";
 import { memoryRoutes } from "./api/memory.js";
 import { hypothesisRoutes } from "./api/hypotheses.js";
+import { experimentRoutes } from "./api/experiments.js";
 
 /**
  * Fastify server entry point.
@@ -42,6 +43,7 @@ async function main() {
   conversationRoutes(app, repo, engine, userId, { AI_PROVIDER: env.aiProvider });
   memoryRoutes(app, repo, engine, userId);
   hypothesisRoutes(app, repo, engine, userId);
+  experimentRoutes(app, repo, engine, userId);
 
   // Health check
   app.get("/api/health", async () => ({

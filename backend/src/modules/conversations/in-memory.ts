@@ -14,6 +14,7 @@ import type {
   ConfidenceCategory,
   HypothesisStatus,
   LinkType,
+  ExperimentData,
 } from "../../ai/types.js";
 import { validateEpistemicPair } from "../../ai/reasoning/engine.js";
 import type { ConversationRepository } from "./repository.js";
@@ -478,5 +479,59 @@ export class InMemoryConversationRepository
       const evidence = this.evidence.find((e) => e.id === link.evidenceId)!;
       return { link, evidence };
     });
+  }
+
+  // ── Career Experiments (Stage D) ───────────────────────────────────
+
+  private experiments: ExperimentData[] = [];
+
+  async createExperiment(
+    userId: string,
+    data: {
+      hypothesisId: string;
+      description: string;
+      successSignal: string;
+      reviewDate?: string | null;
+    },
+  ): Promise<ExperimentData> {
+    const now = new Date().toISOString();
+    const exp: ExperimentData = {
+      id: this.nextId("exp"),
+      userId,
+      hypothesisId: data.hypothesisId,
+      description: data.description,
+      successSignal: data.successSignal,
+      reviewDate: data.reviewDate ?? null,
+      status: "proposed",
+      outcome: null,
+      outcomeRecordedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.experiments.push(exp);
+    return exp;
+  }
+
+  async getExperiment(
+    userId: string,
+    experimentId: string,
+  ): Promise<ExperimentData | null> {
+    const exp = this.experiments.find(
+      (e) => e.id === experimentId && e.userId === userId,
+    );
+    return exp ?? null;
+  }
+
+  async listExperiments(userId: string): Promise<ExperimentData[]> {
+    return this.experiments.filter((e) => e.userId === userId);
+  }
+
+  async listExperimentsByHypothesis(
+    userId: string,
+    hypothesisId: string,
+  ): Promise<ExperimentData[]> {
+    return this.experiments.filter(
+      (e) => e.userId === userId && e.hypothesisId === hypothesisId,
+    );
   }
 }

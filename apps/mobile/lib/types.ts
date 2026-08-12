@@ -151,3 +151,28 @@ export interface HypothesisAssessment {
   };
   rationale: string;
 }
+
+// ── Career Experiments (Stage D) ───────────────────────────────────────
+
+export type ExperimentStatus = "proposed" | "active" | "completed" | "abandoned";
+
+export interface Experiment {
+  id: string;
+  hypothesisId: string;
+  description: string;
+  successSignal: string;
+  reviewDate: string | null;
+  status: ExperimentStatus;
+  outcome: string | null;
+  outcomeRecordedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExperimentProposal {
+  hypothesisId: string;
+  description: string;
+  successSignal: string;
+  reviewDate: string;
+  rationale: string;
+}
