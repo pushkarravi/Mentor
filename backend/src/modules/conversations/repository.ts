@@ -48,7 +48,7 @@ export interface ConversationRepository {
   addPendingCandidates(
     userId: string,
     candidates: Array<{
-      entityType: "evidence" | "hypothesis" | "person";
+      entityType: "evidence";
       extractedStatement: string;
       epistemicType: EpistemicType;
       sourceType: SourceType;
@@ -64,15 +64,40 @@ export interface ConversationRepository {
   ): Promise<PendingCandidate | null>;
   listPendingCandidates(userId: string): Promise<PendingCandidate[]>;
   deletePendingCandidate(userId: string, candidateId: string): Promise<void>;
+
+  /**
+   * Edits a pending candidate before confirmation. sourceType is
+   * intentionally not editable — it represents provenance.
+   */
   updatePendingCandidate(
     userId: string,
     candidateId: string,
     edits: {
       extractedStatement?: string;
       epistemicType?: EpistemicType;
-      sourceType?: SourceType;
     },
   ): Promise<PendingCandidate | null>;
+
+  /**
+   * Atomic confirmation: validates epistemic pair, creates Evidence,
+   * creates Memory audit record, removes pending candidate — all as
+   * one logical operation. The Prisma-backed implementation must use
+   * a database transaction.
+   *
+   * Returns the created Evidence + Memory, or an error result if
+   * validation fails.
+   */
+  confirmPendingCandidate(
+    userId: string,
+    candidateId: string,
+    edits?: {
+      extractedStatement?: string;
+      epistemicType?: EpistemicType;
+    },
+  ): Promise<
+    | { ok: true; evidence: EvidenceData; memoryRecord: MemoryRecordData }
+    | { ok: false; reason: string }
+  >;
 
   // Confirmed evidence
   addEvidence(
@@ -90,7 +115,7 @@ export interface ConversationRepository {
   addMemoryRecord(
     userId: string,
     data: {
-      entityType: string;
+      entityType: "evidence";
       entityId?: string | null;
       extractedStatement: string;
       epistemicType: EpistemicType;

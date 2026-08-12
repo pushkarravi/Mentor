@@ -54,7 +54,7 @@ export interface SendMessageResponse {
 
 // ── Memory candidates (Stage B) ────────────────────────────────────────
 
-export type EntityType = "evidence" | "hypothesis" | "person";
+export type EntityType = "evidence";
 export type SourceType = "user_report" | "imported_document" | "ai_inference" | "observed_outcome";
 
 export interface PendingCandidate {

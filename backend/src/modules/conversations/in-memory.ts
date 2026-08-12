@@ -10,6 +10,7 @@ import type {
   SourceType,
   EpistemicType,
 } from "../../ai/types.js";
+import { validateEpistemicPair } from "../../ai/reasoning/engine.js";
 import type { ConversationRepository } from "./repository.js";
 
 /**
@@ -129,7 +130,7 @@ export class InMemoryConversationRepository
   async addPendingCandidates(
     userId: string,
     candidates: Array<{
-      entityType: "evidence" | "hypothesis" | "person";
+      entityType: "evidence";
       extractedStatement: string;
       epistemicType: EpistemicType;
       sourceType: SourceType;
@@ -190,7 +191,6 @@ export class InMemoryConversationRepository
     edits: {
       extractedStatement?: string;
       epistemicType?: EpistemicType;
-      sourceType?: SourceType;
     },
   ): Promise<PendingCandidate | null> {
     const pc = this.pendingCandidates.find(
@@ -207,14 +207,80 @@ export class InMemoryConversationRepository
       pc.epistemicType = edits.epistemicType;
       edited = true;
     }
-    if (edits.sourceType !== undefined && edits.sourceType !== pc.sourceType) {
-      pc.sourceType = edits.sourceType;
-      edited = true;
-    }
     if (edited) {
       pc.editedBeforeConfirm = true;
     }
     return pc;
+  }
+
+  /**
+   * Atomic confirm: validate → create Evidence → create Memory →
+   * remove pending candidate. One logical operation.
+   */
+  async confirmPendingCandidate(
+    userId: string,
+    candidateId: string,
+    edits?: {
+      extractedStatement?: string;
+      epistemicType?: EpistemicType;
+    },
+  ): Promise<
+    | { ok: true; evidence: EvidenceData; memoryRecord: MemoryRecordData }
+    | { ok: false; reason: string }
+  > {
+    const pc = this.pendingCandidates.find(
+      (c) => c.id === candidateId && c.userId === userId,
+    );
+    if (!pc) {
+      return { ok: false, reason: "Candidate not found" };
+    }
+
+    // Reject mock candidates at the persistence boundary.
+    if (pc.isMock) {
+      return {
+        ok: false,
+        reason: "Mock candidates cannot be confirmed as real career evidence.",
+      };
+    }
+
+    // Apply edits if provided.
+    let final = pc;
+    if (edits) {
+      const updated = await this.updatePendingCandidate(userId, candidateId, edits);
+      if (!updated) {
+        return { ok: false, reason: "Candidate not found after edit" };
+      }
+      final = updated;
+    }
+
+    // Persistence-boundary epistemic enforcement.
+    const check = validateEpistemicPair(final.sourceType, final.epistemicType);
+    if (!check.valid) {
+      return { ok: false, reason: check.reason ?? "Epistemic validation failed" };
+    }
+
+    // Create Evidence.
+    const evidence = await this.addEvidence(userId, {
+      sourceType: final.sourceType,
+      epistemicType: final.epistemicType,
+      description: final.extractedStatement,
+    });
+
+    // Create Memory audit record.
+    const memoryRecord = await this.addMemoryRecord(userId, {
+      entityType: final.entityType,
+      entityId: evidence.id,
+      extractedStatement: final.extractedStatement,
+      epistemicType: final.epistemicType,
+      sourceType: final.sourceType,
+      sourceMessageId: final.sourceMessageId ?? null,
+      editedBeforeConfirm: final.editedBeforeConfirm,
+    });
+
+    // Remove the pending candidate.
+    await this.deletePendingCandidate(userId, candidateId);
+
+    return { ok: true, evidence, memoryRecord };
   }
 
   // ── Confirmed evidence ───────────────────────────────────────────
@@ -256,7 +322,7 @@ export class InMemoryConversationRepository
   async addMemoryRecord(
     userId: string,
     data: {
-      entityType: string;
+      entityType: "evidence";
       entityId?: string | null;
       extractedStatement: string;
       epistemicType: EpistemicType;

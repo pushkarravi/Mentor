@@ -1,6 +1,4 @@
-import type {
-  AIProvider,
-} from "../providers/provider.js";
+import type { AIProvider } from "../providers/provider.js";
 import type {
   CareerContextData,
   ClaimAnalysis,
@@ -27,6 +25,7 @@ import {
 } from "../retrieval/index.js";
 import { extractionSystemPrompt } from "../prompts/index.js";
 import type { MemoryCandidate } from "../types.js";
+import { MockProvider } from "../providers/mock.js";
 
 /**
  * Epistemic enforcement rules — these are Product Invariants enforced
@@ -271,8 +270,10 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
    * (ai_inference cannot be fact) is checked at extraction time so invalid
    * candidates are filtered before they reach the user.
    *
-   * With MockProvider, returns deterministic mock candidates clearly
-   * marked as mock data — not real career evidence.
+   * Mock candidates are generated ONLY when the configured provider is
+   * MockProvider. If a real provider returns invalid/unparseable output,
+   * no candidates are returned — mock career data is never substituted
+   * for a real provider failure.
    */
   async extractMemoryCandidates(
     userMessage: string,
@@ -314,8 +315,6 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       const parsed = extractionResponseSchema.safeParse(raw);
       if (parsed.success) {
         for (const c of parsed.data.candidates) {
-          // Enforce epistemic rule at extraction time: filter invalid pairs
-          // before they reach the user.
           const check = validateEpistemicPair(c.sourceType, c.epistemicType);
           if (check.valid) {
             candidates.push({
@@ -328,14 +327,14 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
             });
           }
         }
-        break; // use first valid parse
+        break;
       }
     }
 
-    // MockProvider fallback: deterministic mock candidates.
-    // These are clearly marked with [Mock] prefixes so they are never
-    // mistaken for real career evidence.
-    if (candidates.length === 0) {
+    // Mock candidates are generated ONLY when the provider is MockProvider.
+    // A real provider returning invalid output results in no candidates —
+    // we never substitute mock career data for a real provider failure.
+    if (candidates.length === 0 && this.provider instanceof MockProvider) {
       return this.generateMockCandidates(userMessage);
     }
 

@@ -73,10 +73,10 @@ export const claimAnalysisResponseSchema = z.object({
   summary: z.string(),
 });
 
-// ── Memory candidate extraction ────────────────────────────────────────
+// ── Memory candidate extraction (Stage B: evidence only) ─────────────
 
 export const memoryCandidateSchema = z.object({
-  entityType: z.enum(["evidence", "hypothesis", "person"]),
+  entityType: z.literal("evidence"),
   extractedStatement: z.string().min(1),
   epistemicType: epistemicTypeSchema,
   sourceType: sourceTypeSchema,
@@ -88,15 +88,15 @@ export const extractionResponseSchema = z.object({
   candidates: z.array(memoryCandidateSchema),
 });
 
-// ── Candidate confirmation ─────────────────────────────────────────────
-
+// ── Candidate confirmation ────────────────────────────────────────────
+// sourceType is intentionally absent from edits — it represents
+// provenance and must not be user-editable.
 export const confirmCandidateSchema = z.object({
   action: z.enum(["confirm", "reject"]),
   edits: z
     .object({
       extractedStatement: z.string().min(1).optional(),
       epistemicType: epistemicTypeSchema.optional(),
-      sourceType: sourceTypeSchema.optional(),
     })
     .optional(),
 });

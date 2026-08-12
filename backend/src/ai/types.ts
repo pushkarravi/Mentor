@@ -98,8 +98,13 @@ export interface ExperimentProposal {
 
 // ── Memory candidate (from extraction pipeline) ────────────────────────
 
+/**
+ * Stage B restricts candidate entityType to "evidence" only.
+ * Hypothesis and person entity types will be added in Stage C / M1
+ * when those entity types have real confirmation workflows.
+ */
 export interface MemoryCandidate {
-  entityType: "evidence" | "hypothesis" | "person";
+  entityType: "evidence";
   extractedStatement: string;
   epistemicType: EpistemicType;
   sourceType: SourceType;
@@ -115,7 +120,7 @@ export interface MemoryCandidate {
 export interface PendingCandidate {
   id: string;
   userId: string;
-  entityType: "evidence" | "hypothesis" | "person";
+  entityType: "evidence";
   extractedStatement: string;
   epistemicType: EpistemicType;
   sourceType: SourceType;
@@ -144,11 +149,12 @@ export interface EvidenceData {
 
 /**
  * MemoryRecordData — the shape of a confirmed Memory record.
+ * entityType is "evidence" in Stage B; the union broadens in Stage C.
  */
 export interface MemoryRecordData {
   id: string;
   userId: string;
-  entityType: string;
+  entityType: "evidence";
   entityId?: string | null;
   extractedStatement: string;
   epistemicType: EpistemicType;

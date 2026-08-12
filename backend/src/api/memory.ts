@@ -2,15 +2,12 @@ import type { FastifyInstance } from "fastify";
 import type { ConversationRepository } from "../modules/conversations/repository.js";
 import type { CareerReasoningEngine } from "../ai/reasoning/engine.js";
 import { confirmCandidateSchema } from "./schemas.js";
-import { validateEpistemicPair } from "../ai/reasoning/engine.js";
 
 /**
  * Memory routes — candidate confirmation, rejection, and listing.
  *
- * The confirm flow enforces epistemic rules at the persistence boundary:
- * even if an edit produces an ai_inference + fact pair, the server rejects
- * it before writing to the database. This is a code-level enforcement,
- * not a prompt-level discouragement.
+ * Confirmation is a single atomic repository call. The route does not
+ * orchestrate individual Evidence/Memory/pending writes.
  */
 export function memoryRoutes(
   app: FastifyInstance,
@@ -50,58 +47,20 @@ export function memoryRoutes(
       return reply.send({ rejected: true, id });
     }
 
-    // CONFIRM: apply edits if provided, then validate at the persistence boundary.
-    let final = candidate;
-    if (edits) {
-      const updated = await repo.updatePendingCandidate(userId, id, edits);
-      if (!updated) {
-        return reply.status(404).send({ error: "Candidate not found after edit" });
-      }
-      final = updated;
-    }
-
-    // Persistence-boundary epistemic enforcement: reject ai_inference + fact
-    // even if the user edited the candidate to produce this pair.
-    const check = validateEpistemicPair(final.sourceType, final.epistemicType);
-    if (!check.valid) {
+    // CONFIRM: single atomic repository operation.
+    const result = await repo.confirmPendingCandidate(userId, id, edits);
+    if (!result.ok) {
       return reply.status(422).send({
-        error: "Epistemic validation failed",
-        reason: check.reason,
+        error: "Confirmation failed",
+        reason: result.reason,
       });
     }
-
-    // Persist as Evidence (for entityType "evidence") or as a Memory record
-    // (for other entity types). In M0, all confirmed candidates also get a
-    // Memory record for audit trail.
-    let evidenceId: string | null = null;
-
-    if (final.entityType === "evidence") {
-      const evidence = await repo.addEvidence(userId, {
-        sourceType: final.sourceType,
-        epistemicType: final.epistemicType,
-        description: final.extractedStatement,
-      });
-      evidenceId = evidence.id;
-    }
-
-    const memoryRecord = await repo.addMemoryRecord(userId, {
-      entityType: final.entityType,
-      entityId: evidenceId,
-      extractedStatement: final.extractedStatement,
-      epistemicType: final.epistemicType,
-      sourceType: final.sourceType,
-      sourceMessageId: final.sourceMessageId ?? null,
-      editedBeforeConfirm: final.editedBeforeConfirm,
-    });
-
-    // Remove the pending candidate — it's now confirmed or rejected.
-    await repo.deletePendingCandidate(userId, id);
 
     return reply.send({
       confirmed: true,
       id,
-      evidenceId,
-      memoryRecord,
+      evidenceId: result.evidence.id,
+      memoryRecord: result.memoryRecord,
     });
   });
 

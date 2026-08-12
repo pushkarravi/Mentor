@@ -139,6 +139,8 @@ export function conversationRoutes(
         reasonToSave: c.reasonToSave,
         linkedEntityId: c.linkedEntityId,
         sourceMessageId: userMessage.id,
+        // isMock is true only when the provider is MockProvider.
+        // A real provider returning valid candidates marks them as not-mock.
         isMock,
       })),
     );

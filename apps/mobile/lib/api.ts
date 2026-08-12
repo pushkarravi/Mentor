@@ -83,7 +83,6 @@ export const api = {
     edits?: {
       extractedStatement?: string;
       epistemicType?: string;
-      sourceType?: string;
     },
   ) =>
     request<ConfirmCandidateResponse | RejectCandidateResponse>(

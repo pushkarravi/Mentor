@@ -21,7 +21,7 @@ export function extractionSystemPrompt(context: {
 ## What you produce
 
 For each piece of information worth saving, propose a candidate with:
-- entityType: "evidence" (most common), "hypothesis" (a testable claim about the user's career), or "person" (a named individual relevant to the career)
+- entityType: "evidence" (the only type extracted in this stage; hypotheses and people are handled by later stages)
 - extractedStatement: the specific statement to persist (quote or closely paraphrase the user)
 - epistemicType: one of "fact", "interpretation", "hypothesis", "emotion", "action"
 - sourceType: "user_report" (the user said it directly) or "ai_inference" (you inferred it from what the user said)
@@ -53,7 +53,7 @@ Return a JSON object with this exact shape:
 {
   "candidates": [
     {
-      "entityType": "evidence" | "hypothesis" | "person",
+      "entityType": "evidence",
       "extractedStatement": "the specific statement",
       "epistemicType": "fact" | "interpretation" | "hypothesis" | "emotion" | "action",
       "sourceType": "user_report" | "ai_inference",

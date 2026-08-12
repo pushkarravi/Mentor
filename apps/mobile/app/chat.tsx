@@ -43,8 +43,6 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const ENTITY_LABELS: Record<string, string> = {
   evidence: "Evidence",
-  hypothesis: "Hypothesis",
-  person: "Person",
 };
 
 export default function ChatScreen() {
