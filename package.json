@@ -1,0 +1,16 @@
+{
+  "name": "mentor",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "apps/mobile"
+  ],
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd apps/mobile && npm run dev",
+    "typecheck": "cd backend && npm run typecheck && cd ../apps/mobile && npm run typecheck",
+    "test": "cd backend && npm test",
+    "lint": "cd backend && npm run lint"
+  }
+}

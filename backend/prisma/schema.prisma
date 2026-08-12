@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ──────────────────────────────────────────────────────────────
+
+enum SourceType {
+  user_report
+  imported_document
+  ai_inference
+  observed_outcome
+}
+
+enum EpistemicType {
+  fact
+  interpretation
+  hypothesis
+  emotion
+  action
+}
+
+enum ConfidenceCategory {
+  tentative
+  moderate
+  strong
+}
+
+enum ExperimentStatus {
+  proposed
+  active
+  completed
+  abandoned
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+enum ReasoningLens {
+  coach
+  challenger
+  decision_advisor
+}
+
+// ── M0 Tables ──────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  careerContexts  CareerContext[]
+  people          Person[]
+  conversations   Conversation[]
+  evidence        Evidence[]
+  hypotheses      CareerHypothesis[]
+  experiments     CareerExperiment[]
+  memories        Memory[]
+}
+
+model CareerContext {
+  id                String   @id @default(cuid())
+  userId            String
+  currentRole       String
+  yearsExperience   Int
+  targetOutcome     String
+  whyNotYet         String
+  // whyNotYet is the user's own theory — stored as interpretation, not fact
+  whyNotYetEpistemic EpistemicType @default(interpretation)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Person {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  role      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evidence Evidence[]
+
+  @@index([userId])
+}
+
+model Evidence {
+  id            String        @id @default(cuid())
+  userId        String
+  sourceType    SourceType
+  epistemicType EpistemicType
+  description   String
+  personId      String?
+  occurredAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person        Person?             @relation(fields: [personId], references: [id], onDelete: SetNull)
+  hypothesisLinks HypothesisEvidence[]
+
+  @@index([userId])
+  @@index([personId])
+}
+
+model CareerHypothesis {
+  id          String             @id @default(cuid())
+  userId      String
+  statement   String
+  confidence  ConfidenceCategory @default(tentative)
+  status      String             @default("untested") // untested, active, disconfirmed, confirmed
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evidenceLinks HypothesisEvidence[]
+  experiments   CareerExperiment[]
+
+  @@index([userId])
+}
+
+model HypothesisEvidence {
+  id           String   @id @default(cuid())
+  hypothesisId String
+  evidenceId   String
+  supports     Boolean
+  createdAt    DateTime @default(now())
+
+  hypothesis CareerHypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+  evidence   Evidence         @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+
+  @@unique([hypothesisId, evidenceId])
+  @@index([hypothesisId])
+  @@index([evidenceId])
+}
+
+model CareerExperiment {
+  id            String           @id @default(cuid())
+  userId        String
+  hypothesisId  String
+  description   String
+  successSignal String
+  reviewDate    DateTime?
+  status        ExperimentStatus @default(proposed)
+  outcome       String?
+  outcomeRecordedAt DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hypothesis CareerHypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([hypothesisId])
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([userId])
+}
+
+model Message {
+  id             String         @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String
+  reasoningLens  ReasoningLens?
+  claimAnalysis  Json?
+  createdAt      DateTime       @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+model Memory {
+  id                 String        @id @default(cuid())
+  userId             String
+  entityType         String
+  entityId           String?
+  extractedStatement String
+  epistemicType      EpistemicType
+  sourceType         SourceType
+  sourceMessageId    String?
+  confirmed          Boolean       @default(false)
+  editedBeforeConfirm Boolean      @default(false)
+  createdAt          DateTime      @default(now())
+  confirmedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([confirmed])
+}

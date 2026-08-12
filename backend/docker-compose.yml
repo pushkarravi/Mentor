@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mentor
+      POSTGRES_PASSWORD: mentor
+      POSTGRES_DB: mentor
+    ports:
+      - "5432:5432"
+    volumes:
+      - mentor_pgdata:/var/lib/postgresql/data
+
+volumes:
+  mentor_pgdata:

@@ -164,36 +164,46 @@ modules — see § Coding conventions.
 _(Update this section every milestone.)_
 
 - Repository scaffolded with PRODUCT.md, ARCHITECTURE.md, ROADMAP.md, README.md, AGENTS.md,
-  CONTRIBUTING.md, CHANGELOG.md, `.env.example`, `.gitignore`.
-- **This revision (v2 of the docs)** re-scoped the plan around M0 — Career Intelligence Prototype
-  — before any broader CRUD build: added the epistemic model (source_type/epistemic_type),
-  `CareerReasoningEngine` as an explicit layer above `AIProvider`, Career Strategy/Target Role
-  Thesis, Sponsorship Map (as a Person/Relationship concept, not a new table), Management Readiness
-  leadership domains, qualitative-only confidence, a reduced 3-control user-facing surface (Coach /
-  Challenge Me / Help Me Decide) over the 7 internal reasoning lenses, and a Golden Career
-  Scenarios evaluation suite at `evaluations/golden-career-scenarios.md`.
-- No application code written yet. Prisma schema, backend, and frontend app have not been
-  implemented. M0's schema is deliberately smaller than the original full data model — see
-  ARCHITECTURE.md § 9 "M0 subset."
-- Git repository initialized locally, two commits so far (initial scaffold, this revision).
-  Target remote: `https://github.com/pushkarravi/Mentor` (not yet pushed).
+  CHANGELOG.md, `.env.example`, `.gitignore`.
+- **M0 Stage A complete** — Career context capture + Coach conversation with epistemic claim
+  analysis. The user can enter minimal career context, start a conversation, and receive a
+  response that includes a structured claim decomposition (fact/interpretation/hypothesis/emotion).
+  The response uses the MockProvider (placeholder) by default; set `AI_PROVIDER=perplexity` and
+  `PERPLEXITY_API_KEY` for real AI reasoning.
+- **Backend** (`backend/`): Fastify + TypeScript + Prisma + Vitest + ESLint. AIProvider interface
+  with MockProvider and PerplexityProvider. CareerReasoningEngine with `analyzeClaim()` and
+  `respond()`. Epistemic enforcement in code (`validateEpistemicPair` rejects ai_inference+fact).
+  Qualitative confidence computation (`computeConfidence` — tentative/moderate/strong). Three
+  reasoning-lens prompts (Coach, Challenger, Decision Advisor v1). Retrieval module. In-memory
+  conversation repository. Fastify routes for context and conversations. Zod validation. 15 tests
+  passing (typecheck, lint, tests all green).
+- **Frontend** (`apps/mobile/`): Expo + TypeScript + Expo Router. Career context capture screen.
+  Coach chat screen with Coach / Challenge Me / Help Me Decide controls. Claim analysis panel
+  with color-coded epistemic decomposition.
+- **Prisma schema** (`backend/prisma/schema.prisma`): M0 subset written and validated
+  (`prisma generate` succeeds). **No migration has been applied** — `DATABASE_URL` was not
+  available in the build environment. To apply locally:
+  `cd backend && docker compose up -d && npx prisma migrate dev --name m0_initial_schema`
+- **No auth** — M0 is localhost-only, single-user, per ARCHITECTURE.md § 2. Auth is documented as
+  a future trigger, not implemented.
+- **No Bolt-specific code** — the repository is portable across Claude Code, Codex, Manus, etc.
+- Target remote: `https://github.com/pushkarravi/Mentor` (not yet pushed).
 
 ## Next Recommended Tasks
 
-1. Write the **M0 subset** of `backend/prisma/schema.prisma` (User, CareerContext, Person,
-   Evidence, CareerHypothesis, HypothesisEvidence, CareerExperiment, Conversation, Message,
-   Memory) per ARCHITECTURE.md § 9, and run the first migration against local Postgres.
-2. Implement `AIProvider` interface + `PerplexityProvider`.
-3. Implement the **M0 method set** of `CareerReasoningEngine` (`analyzeClaim`,
-   `evaluateHypothesis`, `recommendExperiment`, `reviewExperimentOutcome`) — leave the M2/M3
-   methods as documented stubs, not half-implementations.
-4. Build the memory-extraction pipeline with epistemic/source typing and the confirm/edit/reject
-   flow.
-5. Read `evaluations/golden-career-scenarios.md` and validate the M0 reasoning loop against at
-   least a handful of those scenarios before calling M0 "done."
-6. Scaffold the Expo app (`apps/mobile/`) with a single Coach chat screen (Coach / Challenge Me /
-   Help Me Decide controls) hitting the backend — minimal context capture, no full onboarding flow.
-7. Wire the vertical slice end-to-end: minimal context → Coach conversation → evidence saved →
-   hypothesis created/updated → experiment created → (later) outcome recorded → hypothesis
-   assessment updated and visible.
+1. **Stage B**: Build the memory-extraction pipeline — `extractMemoryCandidates()` in
+   `CareerReasoningEngine`. After each conversation turn, propose candidate Evidence/Memory
+   records with `source_type` + `epistemic_type` + reason-to-save. Add confirm/edit/reject UI.
+   Enforce: nothing is persisted without confirmation; `ai_inference` can never be `fact`.
+2. **Stage C**: Implement `evaluateHypothesis()` in `CareerReasoningEngine`. Add hypothesis
+   creation from confirmed evidence. Show qualitative confidence + evidence counts.
+3. **Stage D**: Implement `recommendExperiment()` in `CareerReasoningEngine`. Add experiment
+   creation tied to a hypothesis with success signal and review date.
+4. **Stage E**: Add outcome recording on experiments.
+5. **Stage F**: Implement `reviewExperimentOutcome()` — close the loop: recorded outcome becomes
+   new evidence → hypothesis reassessment visible with updated confidence.
+6. **Prisma migration**: Apply the M0 schema migration locally once PostgreSQL is available.
+7. **Golden Career Scenarios evaluation**: Once a real AIProvider (Perplexity) is connected,
+   manually exercise scenarios #1, #3, #4, #5, #8, #10 against the reasoning loop. Do not
+   evaluate scenarios against MockProvider.
 8. Push initial commits to `https://github.com/pushkarravi/Mentor`.
