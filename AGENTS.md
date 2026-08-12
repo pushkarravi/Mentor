@@ -115,8 +115,10 @@ See ARCHITECTURE.md § Repository structure. Note the addition of `backend/src/a
 
 ## How to run the application
 
-See README.md "Getting started" (updated once application code exists — M0 has no code yet as of
-this revision).
+See README.md "Getting started" for installation, database setup, and running instructions.
+The backend uses a repository factory: `REPOSITORY_PROVIDER=supabase` for PostgreSQL,
+`REPOSITORY_PROVIDER=memory` for in-memory (tests/fast dev), or `auto` (default — uses
+Supabase when credentials are available).
 
 ## How to test
 
@@ -232,48 +234,51 @@ _(Update this section every milestone.)_
   evidence links. Experiments screen with creation, recommendation, outcome recording
   (narrative + observedFact + classification), and Stage F review delta display (before/after
   confidence, evidence counts, what-changed explanation).
-- **Prisma schema** (`backend/prisma/schema.prisma`): M0 subset written and validated
-  (`prisma generate` succeeds). Includes `OutcomeClassification` enum and Stage E/F fields
-  on `CareerExperiment` (`outcomeClassification`, `outcomeEvidenceId`, `reviewedAt`) with
-  an explicit `Evidence` relation (`ExperimentOutcomeEvidence`). **No migration has been
-  applied** — `DATABASE_URL` was not available in the build environment. To apply locally:
-  `cd backend && docker compose up -d && npx prisma migrate dev --name m0_initial_schema`
+- **Prisma schema** (`backend/prisma/schema.prisma`): M0 subset applied and validated.
+  Includes `OutcomeClassification` enum, Stage E/F fields on `CareerExperiment`
+  (`outcomeClassification`, `outcomeEvidenceId`, `reviewedAt`) with an explicit `Evidence`
+  relation (`ExperimentOutcomeEvidence`), and `PendingCandidate` model (persistent candidate
+  queue). Migration `m0_initial_schema` applied to Supabase PostgreSQL. Migration SQL is
+  committed at `backend/prisma/migrations/20260812000000_m0_initial_schema/migration.sql`.
 - **No auth** — M0 is localhost-only, single-user, per ARCHITECTURE.md § 2. Auth is documented as
   a future trigger, not implemented.
-- **No Bolt-specific code** — the repository is portable across Claude Code, Codex, Manus, etc.
-- Target remote: `https://github.com/pushkarravi/Mentor` (not yet pushed).
+- **PostgreSQL-backed**: `SupabaseConversationRepository` implements the full
+  `ConversationRepository` interface using the Supabase JS client (PostgREST API).
+  Repository factory in `backend/src/modules/conversations/factory.ts` selects between
+  in-memory and Supabase based on `REPOSITORY_PROVIDER` env var. The M0 local user
+  (`m0-local-user`) is upserted at database setup time. 209 tests passing (138 existing +
+  34 in-memory contract + 34 Supabase contract + 3 persistence/restart), typecheck, lint,
+  and frontend typecheck all green.
 
-### M0 status: structurally implemented, not yet product-validated
+### M0 status: structurally implemented and PostgreSQL-backed, not yet product-validated
 
-The M0 loop is **structurally implemented** — all stages (A through F) are implemented, the
-data flows correctly from context through to updated hypothesis, persistence is atomic,
-epistemic invariants are enforced in code, the transaction boundary protects
-relationship-sensitive values from caller manipulation, and 138 unit tests verify the
-plumbing, validation, edge cases, and integrity guards. However, **M0 is not yet
+The M0 loop is **structurally implemented and PostgreSQL-backed** — all stages (A through F)
+are implemented, the data flows correctly from context through to updated hypothesis,
+persistence is atomic, epistemic invariants are enforced in code, the transaction boundary
+protects relationship-sensitive values from caller manipulation, data persists to real
+PostgreSQL via Supabase, and 209 tests verify the plumbing, validation, edge cases,
+integrity guards, and cross-restart persistence. However, **M0 is not yet
 product-validated**. Unit tests verify structure, not reasoning. The `MockProvider` and
 `StubProvider` return deterministic placeholders, not genuine career reasoning. The
 following remain before M0 can be called product-validated:
 
-1. **PostgreSQL integration**: Apply the M0 Prisma schema migration to a real PostgreSQL
-   database and verify the in-memory repository's contract holds against Prisma. The
-   schema is written and validates (`prisma generate` succeeds) but no migration has been
-   applied.
-2. **Golden Career Scenarios evaluation**: Manually exercise scenarios #1, #3, #4, #5, #8, #10
+1. **Golden Career Scenarios evaluation**: Manually exercise scenarios #1, #3, #4, #5, #8, #10
    from `evaluations/golden-career-scenarios.md` against the full reasoning loop using a real
    AIProvider (Perplexity). Do not evaluate against MockProvider. This is the acceptance
    step for M0 reasoning quality — unit tests passing does not constitute proof.
-3. **Real-provider integration testing**: Verify that `analyzeClaim()`, `respond()`,
+2. **Real-provider integration testing**: Verify that `analyzeClaim()`, `respond()`,
    `extractMemoryCandidates()`, and `recommendExperiment()` produce genuinely useful output
    with a real model, not just structurally valid output.
 
 ## Next Recommended Tasks
 
-1. **PostgreSQL integration**: Apply the M0 Prisma schema migration to a real PostgreSQL
-   database. Verify the in-memory repository contract holds against Prisma.
-2. **Golden Career Scenarios evaluation**: Once a real AIProvider (Perplexity) is connected,
+1. **Golden Career Scenarios evaluation**: Once a real AIProvider (Perplexity) is connected,
    manually exercise scenarios #1, #3, #4, #5, #8, #10 against the reasoning loop. Do not
    evaluate scenarios against MockProvider. This is the acceptance step for M0 reasoning
    quality — unit tests passing does not constitute proof.
+2. **Real-provider integration testing**: Verify that `analyzeClaim()`, `respond()`,
+   `extractMemoryCandidates()`, and `recommendExperiment()` produce genuinely useful output
+   with a real model, not just structurally valid output.
 3. Push initial commits to `https://github.com/pushkarravi/Mentor`.
-4. After M0 is product-validated via PostgreSQL integration + Golden Scenarios, begin M1
+4. After M0 is product-validated via Golden Scenarios, begin M1
    (Career Context expansion). Do not begin M1 before M0 is product-validated.

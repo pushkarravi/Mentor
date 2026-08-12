@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import { loadEnv } from "./config/env.js";
 import { createProvider } from "./ai/providers/factory.js";
 import { CareerReasoningEngine } from "./ai/reasoning/engine.js";
-import { InMemoryConversationRepository } from "./modules/conversations/in-memory.js";
+import { createRepository } from "./modules/conversations/factory.js";
 import { conversationRoutes } from "./api/conversations.js";
 import { memoryRoutes } from "./api/memory.js";
 import { hypothesisRoutes } from "./api/hypotheses.js";
@@ -32,8 +32,13 @@ async function main() {
   // Reasoning engine — the layer between routes and the AI provider
   const engine = new CareerReasoningEngine(provider);
 
-  // Repository — in-memory when no DATABASE_URL, Prisma-backed otherwise
-  const repo = new InMemoryConversationRepository();
+  // Repository — Supabase-backed when credentials are available,
+  // in-memory otherwise. Selection is in the factory, not here.
+  const repo = createRepository({
+    provider: env.repositoryProvider,
+    supabaseUrl: env.supabaseUrl,
+    supabaseAnonKey: env.supabaseAnonKey,
+  });
 
   // M0: localhost-only, single user. No auth.
   // Auth is a future trigger — see AGENTS.md.
@@ -49,14 +54,14 @@ async function main() {
   app.get("/api/health", async () => ({
     status: "ok",
     provider: env.aiProvider,
-    database: env.useInMemoryDb ? "in-memory" : "prisma",
+    database: env.useInMemoryDb ? "in-memory" : "supabase",
   }));
 
   try {
     await app.listen({ port: env.port, host: "0.0.0.0" });
     console.log(
       `Mentor backend running on port ${env.port} ` +
-        `(provider: ${env.aiProvider}, db: ${env.useInMemoryDb ? "in-memory" : "prisma"})`,
+        `(provider: ${env.aiProvider}, db: ${env.useInMemoryDb ? "in-memory" : "supabase"})`,
     );
   } catch (err) {
     app.log.error(err);

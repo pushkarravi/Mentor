@@ -27,21 +27,22 @@ Scope:
       reasoning quality before/while building the above
 - [x] No auth beyond a local-only single-user assumption (see ARCHITECTURE.md § Auth) — do not
       spend M0 budget on login infrastructure
-- [ ] Local Postgres via Prisma; minimal schema — only the tables the loop actually needs
+- [x] Local Postgres via Prisma; minimal schema — only the tables the loop actually needs
       (CareerContext, Person (optional, only if mentioned), Evidence, CareerHypothesis,
-      CareerExperiment, Conversation, Message, Memory)
-      — schema is written and validated (including Stage E/F fields and OutcomeClassification
-      enum); migration not yet applied; not yet product-validated against real PostgreSQL
+      CareerExperiment, Conversation, Message, Memory, PendingCandidate)
+      — schema applied to Supabase PostgreSQL, migration committed;
+      SupabaseConversationRepository implements the full repository contract;
+      34 Supabase contract tests + 3 persistence/restart tests pass against real PostgreSQL
 
 ### M0 status
 
-**Structurally implemented, not yet product-validated.** All six stages (A–F) are
-implemented, the loop closes correctly, persistence is atomic, the transaction boundary
-protects relationship-sensitive values from caller manipulation, and 138 unit tests
-verify the plumbing. However, the schema migration has not been applied to a real
-PostgreSQL database, and the reasoning quality has not been evaluated against a real
-AIProvider. Both are required before M0 can be called product-validated. Do not begin
-M1 until both are complete.
+**Structurally implemented and PostgreSQL-backed, not yet product-validated.** All six
+stages (A–F) are implemented, the loop closes correctly, persistence is atomic, the
+transaction boundary protects relationship-sensitive values from caller manipulation,
+data persists to real PostgreSQL, and 209 tests verify the plumbing including
+cross-restart persistence. However, the reasoning quality has not been evaluated against
+a real AIProvider. The Golden Career Scenarios evaluation is the remaining acceptance
+step. Do not begin M1 until it is complete.
 
 Explicitly NOT in M0 (moved to later milestones):
 - Full Situation Analysis workflow → M2

@@ -83,6 +83,7 @@ model User {
   hypotheses      CareerHypothesis[]
   experiments     CareerExperiment[]
   memories        Memory[]
+  pendingCandidates PendingCandidate[]
 }
 
 model CareerContext {
@@ -277,4 +278,26 @@ model Memory {
 
   @@index([userId])
   @@index([confirmed])
+}
+
+/// Pending evidence/memory candidate awaiting user confirmation.
+/// Persisted so the confirm/edit/reject queue survives restarts.
+/// Deleted on confirm or reject — never becomes a Memory record directly.
+model PendingCandidate {
+  id                  String        @id @default(cuid())
+  userId              String
+  entityType          String
+  extractedStatement  String
+  epistemicType       EpistemicType
+  sourceType          SourceType
+  reasonToSave        String
+  linkedEntityId      String?
+  sourceMessageId     String?
+  isMock              Boolean       @default(false)
+  editedBeforeConfirm Boolean       @default(false)
+  createdAt           DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

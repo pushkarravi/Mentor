@@ -182,11 +182,67 @@ The repository—not a conversation with any particular AI—is the source of tr
 
 This is intentional: the project should be possible to continue with Claude, ChatGPT/Codex, Manus, Perplexity Computer, GitHub Copilot, or a human developer without depending on the history of whichever tool worked on it last.
 
+## Getting started
+
+### Prerequisites
+
+- Node.js 22+
+- For PostgreSQL: a Supabase project (or local Docker PostgreSQL)
+
+### Installation
+
+```bash
+# Install dependencies
+npm install
+
+# Typecheck everything
+npm run typecheck
+
+# Run tests
+npm test
+```
+
+### Running the backend
+
+The backend uses a repository factory to select persistence:
+
+- `REPOSITORY_PROVIDER=supabase` — uses SupabaseConversationRepository (real PostgreSQL)
+- `REPOSITORY_PROVIDER=memory` — uses InMemoryConversationRepository (fast tests, data lost on restart)
+- Not set / `auto` — uses Supabase when `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are available, in-memory otherwise
+
+```bash
+cd backend
+npm run dev
+```
+
+The server starts on port 3001 by default.
+
+### Running the frontend
+
+```bash
+cd apps/mobile
+npm run dev
+```
+
+### Database setup
+
+The Prisma schema is in `backend/prisma/schema.prisma`. The migration has been applied to the project's Supabase instance. For local PostgreSQL:
+
+```bash
+cd backend
+docker compose up -d
+npx prisma migrate dev --name m0_initial_schema
+```
+
+### M0 user bootstrap
+
+M0 is single-user without authentication. A local user with ID `m0-local-user` is upserted at startup. This is isolated so it can be replaced by real authenticated user IDs in M1.
+
 ## Project status
 
-**Early development / experimental.**
+**M0 structurally implemented and PostgreSQL-backed, not yet product-validated.**
 
-The product model and architecture are being established first, with implementation proceeding through small vertical slices.
+All six stages (A through F) are implemented, the core reasoning loop is closed, data persists to PostgreSQL, and 209 tests pass (including 34 Supabase-backed contract tests and 3 persistence/restart tests). However, reasoning quality has not yet been evaluated against the Golden Career Scenarios with a real AI provider — that is the remaining acceptance step before M0 can be called complete.
 
 This repository should not yet be considered a finished application or production-ready career-advice system.
 

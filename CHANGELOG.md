@@ -2,7 +2,7 @@
 
 All notable changes to Mentor are documented in this file.
 
-## [Unreleased] — M0 Stages A–F: Core Reasoning Loop (structurally implemented)
+## [Unreleased] — M0 Stages A–F: Core Reasoning Loop (structurally implemented, PostgreSQL-backed)
 
 ### Added
 
@@ -120,17 +120,42 @@ npx prisma migrate dev --name m0_initial_schema
 
 ### Not yet implemented (deferred)
 
-- **PostgreSQL integration**: schema migration not yet applied to a real database
 - **Golden Career Scenarios evaluation**: requires a real AIProvider — the acceptance step
+- **Real-provider integration testing**: verify reasoning quality with a real model
 - **Auth**: M1 concern per architecture
+
+### PostgreSQL integration
+
+- **Prisma schema**: `backend/prisma/schema.prisma` — all M0 tables including
+  `PendingCandidate` (persistent candidate queue, survives restarts) and
+  `OutcomeClassification` enum. Migration `m0_initial_schema` applied to Supabase.
+  Migration SQL committed at
+  `backend/prisma/migrations/20260812000000_m0_initial_schema/migration.sql`.
+- **SupabaseConversationRepository** (`backend/src/modules/conversations/supabase-repo.ts`):
+  Implements the full `ConversationRepository` interface using the Supabase JS client
+  (PostgREST API). All queries scoped by userId. Three atomic methods
+  (confirmPendingCandidate, recordExperimentOutcomeAtomic,
+  applyExperimentOutcomeReviewAtomic) perform multi-step persistence with best-effort
+  cleanup on failure. Relationship-sensitive values in the review method are derived from
+  the stored Experiment, not the caller.
+- **Repository factory** (`backend/src/modules/conversations/factory.ts`):
+  `REPOSITORY_PROVIDER=supabase` or `REPOSITORY_PROVIDER=memory`. Auto-detection defaults
+  to Supabase when credentials are available. Routes and CareerReasoningEngine unchanged.
+- **M0 user bootstrap**: `m0-local-user` upserted at database setup. Isolated for future
+  replacement by authenticated user IDs.
+- **Shared contract tests**: `backend/src/modules/conversations/contract-tests.ts` —
+  34 tests run against both in-memory and Supabase implementations.
+- **Persistence/restart tests**: 3 tests verify data survives repository instance
+  recreation across 4 separate sessions (career context, conversations, full M0 loop).
+- **209 tests passing** (138 existing + 34 in-memory contract + 34 Supabase contract +
+  3 persistence/restart). Typecheck, lint, frontend typecheck all green.
 
 ### M0 status
 
-**Structurally implemented, not yet product-validated.** The loop is closed and 138
-tests pass, but two acceptance steps remain: (1) apply the Prisma migration to real
-PostgreSQL and verify the repository contract holds, and (2) evaluate reasoning quality
-against Golden Career Scenarios with a real AIProvider. Do not begin M1 until both are
-complete.
+**Structurally implemented and PostgreSQL-backed, not yet product-validated.** The loop
+is closed, data persists to real PostgreSQL, and 209 tests pass including cross-restart
+persistence tests. The remaining acceptance step is Golden Career Scenario evaluation
+with a real AIProvider. Do not begin M1 until that is complete.
 
 ### Not yet implemented (deferred)
 

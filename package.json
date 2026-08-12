@@ -12,5 +12,8 @@
     "typecheck": "cd backend && npm run typecheck && cd ../apps/mobile && npm run typecheck",
     "test": "cd backend && npm test",
     "lint": "cd backend && npm run lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3"
   }
 }
