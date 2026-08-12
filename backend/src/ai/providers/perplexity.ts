@@ -1,4 +1,4 @@
-import type { AIProvider } from "./provider.js";
+import type { AIProvider, ProviderMetadata } from "./provider.js";
 import type {
   ChatMessage,
   ChatResult,
@@ -13,6 +13,8 @@ import type {
  * or UI component.
  */
 export class PerplexityProvider implements AIProvider {
+  readonly metadata: ProviderMetadata = { isSynthetic: false };
+
   private apiKey: string;
   private model: string;
 

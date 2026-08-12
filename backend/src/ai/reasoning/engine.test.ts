@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  CareerReasoningEngine,
   validateEpistemicPair,
   computeConfidence,
 } from "../reasoning/engine.js";
+import type { AIProvider, ProviderMetadata } from "../providers/provider.js";
+import type { ChatResult } from "../types.js";
 import type { SourceType, EpistemicType } from "../types.js";
 
 describe("Epistemic enforcement rules", () => {
@@ -142,5 +145,140 @@ describe("Qualitative confidence computation (no fake precision)", () => {
     });
     expect(["tentative", "moderate", "strong"]).toContain(result);
     expect(typeof result).toBe("string");
+  });
+});
+
+// ── Arbitrary provider test ──────────────────────────────────────────
+// Proves the engine works with any provider that satisfies the AIProvider
+// interface, without importing or depending on a concrete provider class.
+
+class StubRealProvider implements AIProvider {
+  readonly metadata: ProviderMetadata = { isSynthetic: false };
+
+  private responses: Map<string, ChatResult>;
+
+  constructor(responses: Map<string, ChatResult>) {
+    this.responses = responses;
+  }
+
+  async chat(input: {
+    messages: ChatMessage[];
+    system: string;
+  }): Promise<ChatResult> {
+    if (this.responses.size === 1) {
+      for (const [, result] of this.responses) return result;
+    }
+    if (input.system.includes("extraction")) {
+      return (
+        this.responses.get("extraction") ?? { content: "", structured: null }
+      );
+    }
+    return this.responses.get("chat") ?? { content: "", structured: null };
+  }
+}
+
+describe("CareerReasoningEngine with arbitrary provider", () => {
+  it("responds and extracts candidates using a custom AIProvider implementation", async () => {
+    const claimAnalysisResponse = {
+      components: [
+        { type: "fact" as const, text: "I was not promoted" },
+        { type: "interpretation" as const, text: "My manager does not value me" },
+      ],
+      summary: "A fact and an interpretation about career progress",
+    };
+
+    const extractionResponse = {
+      candidates: [
+        {
+          entityType: "evidence" as const,
+          extractedStatement: "I was not promoted in the last cycle",
+          epistemicType: "fact" as const,
+          sourceType: "user_report" as const,
+          reasonToSave: "Promotion history for career context",
+        },
+      ],
+    };
+
+    const provider = new StubRealProvider(
+      new Map([
+        [
+          "chat",
+          {
+            content: JSON.stringify(claimAnalysisResponse),
+            structured: null,
+          },
+        ],
+        [
+          "extraction",
+          {
+            content: JSON.stringify(extractionResponse),
+            structured: null,
+          },
+        ],
+      ]),
+    );
+
+    const engine = new CareerReasoningEngine(provider);
+    const careerContext = {
+      currentRole: "Senior Engineer",
+      yearsExperience: 8,
+      targetOutcome: "Staff Engineer",
+      whyNotYet: "Haven't demonstrated org-level impact",
+    };
+
+    // Step 1: analyze the claim (uses the "chat" response).
+    const claimAnalysis = await engine.analyzeClaim(
+      "I was not promoted and my manager doesn't value me",
+      { careerContext },
+    );
+
+    expect(claimAnalysis).toBeDefined();
+    expect(claimAnalysis.components).toHaveLength(2);
+    expect(claimAnalysis.components[0].type).toBe("fact");
+
+    // Step 2: respond using the claim analysis (reuses the single "chat" response).
+    const response = await engine.respond(
+      "I was not promoted and my manager doesn't value me",
+      "coach",
+      claimAnalysis,
+      { careerContext },
+    );
+
+    expect(response).toBeDefined();
+    expect(typeof response).toBe("string");
+
+    // Step 3: extract memory candidates (uses the "extraction" response).
+    const candidates = await engine.extractMemoryCandidates(
+      "I was not promoted and my manager doesn't value me",
+      claimAnalysis,
+      { careerContext },
+    );
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].extractedStatement).toBe(
+      "I was not promoted in the last cycle",
+    );
+    expect(candidates[0].sourceType).toBe("user_report");
+  });
+
+  it("does not generate mock candidates when a non-synthetic provider returns unparseable output", async () => {
+    const provider = new StubRealProvider(
+      new Map([
+        ["chat", { content: "not json", structured: null }],
+        ["extraction", { content: "also not json", structured: null }],
+      ]),
+    );
+
+    const engine = new CareerReasoningEngine(provider);
+    const claimAnalysis: import("../types.js").ClaimAnalysis = {
+      components: [{ type: "fact", text: "Test" }],
+      summary: "Test",
+    };
+
+    const candidates = await engine.extractMemoryCandidates("test", claimAnalysis, {});
+
+    // A real (non-synthetic) provider returning garbage produces no candidates.
+    // Mock career data is never substituted for a real provider failure.
+    expect(candidates).toHaveLength(0);
   });
 });

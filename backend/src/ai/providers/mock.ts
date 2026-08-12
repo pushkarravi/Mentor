@@ -1,4 +1,4 @@
-import type { AIProvider } from "./provider.js";
+import type { AIProvider, ProviderMetadata } from "./provider.js";
 import type { ChatResult } from "../types.js";
 
 /**
@@ -9,6 +9,8 @@ import type { ChatResult } from "../types.js";
  * only be evaluated against a real AIProvider (e.g. PerplexityProvider).
  */
 export class MockProvider implements AIProvider {
+  readonly metadata: ProviderMetadata = { isSynthetic: true };
+
   async chat(input: {
     messages: { role: string; content: string }[];
     system: string;

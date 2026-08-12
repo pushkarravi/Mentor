@@ -13,7 +13,7 @@ import type {
 import {
   claimAnalysisResponseSchema,
   extractionResponseSchema,
-} from "../../api/schemas.js";
+} from "../schemas.js";
 import {
   assembleSystemPrompt,
   formatCareerContext,
@@ -25,7 +25,6 @@ import {
 } from "../retrieval/index.js";
 import { extractionSystemPrompt } from "../prompts/index.js";
 import type { MemoryCandidate } from "../types.js";
-import { MockProvider } from "../providers/mock.js";
 
 /**
  * Epistemic enforcement rules — these are Product Invariants enforced
@@ -331,10 +330,11 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       }
     }
 
-    // Mock candidates are generated ONLY when the provider is MockProvider.
-    // A real provider returning invalid output results in no candidates —
-    // we never substitute mock career data for a real provider failure.
-    if (candidates.length === 0 && this.provider instanceof MockProvider) {
+    // Mock candidates are generated ONLY when the provider is synthetic
+    // (i.e. MockProvider). A real provider returning invalid output results
+    // in no candidates — we never substitute mock career data for a real
+    // provider failure.
+    if (candidates.length === 0 && this.provider.metadata.isSynthetic) {
       return this.generateMockCandidates(userMessage);
     }
 

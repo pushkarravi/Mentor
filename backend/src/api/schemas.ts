@@ -1,47 +1,33 @@
 import { z } from "zod";
 
-// ── Epistemic enums (mirror Prisma schema) ─────────────────────────────
+/**
+ * API-layer Zod schemas — validate HTTP request/response bodies.
+ *
+ * AI-domain schemas (model-output validation, epistemic enums) are
+ * defined in src/ai/schemas.ts and re-exported here for convenience.
+ * The reasoning layer imports from src/ai/schemas.ts, never from here.
+ */
 
-export const sourceTypeSchema = z.enum([
-  "user_report",
-  "imported_document",
-  "ai_inference",
-  "observed_outcome",
-]);
+// Re-export AI-domain schemas so API routes can use them without
+// a second import path.
+export {
+  sourceTypeSchema,
+  epistemicTypeSchema,
+  claimComponentTypeSchema,
+  confidenceCategorySchema,
+  reasoningLensSchema,
+  claimAnalysisResponseSchema,
+  memoryCandidateSchema,
+  extractionResponseSchema,
+} from "../ai/schemas.js";
 
-export const epistemicTypeSchema = z.enum([
-  "fact",
-  "interpretation",
-  "hypothesis",
-  "emotion",
-  "action",
-]);
+import {
+  epistemicTypeSchema,
+  reasoningLensSchema,
+  claimAnalysisResponseSchema,
+} from "../ai/schemas.js";
 
-// Claim analysis uses six categories — includes "assumption" which is not
-// a persistable epistemic_type for Evidence/Memory but is recognized
-// during claim decomposition.
-export const claimComponentTypeSchema = z.enum([
-  "fact",
-  "interpretation",
-  "assumption",
-  "emotion",
-  "hypothesis",
-  "action",
-]);
-
-export const confidenceCategorySchema = z.enum([
-  "tentative",
-  "moderate",
-  "strong",
-]);
-
-export const reasoningLensSchema = z.enum([
-  "coach",
-  "challenger",
-  "decision_advisor",
-]);
-
-// ── Career context ─────────────────────────────────────────────────────
+// ── Career context (API input) ──────────────────────────────────────
 
 export const saveCareerContextSchema = z.object({
   currentRole: z.string().min(1),
@@ -50,7 +36,7 @@ export const saveCareerContextSchema = z.object({
   whyNotYet: z.string().min(1),
 });
 
-// ── Conversation ───────────────────────────────────────────────────────
+// ── Conversation (API input) ────────────────────────────────────────
 
 export const createConversationSchema = z.object({
   title: z.string().optional(),
@@ -61,34 +47,7 @@ export const sendMessageSchema = z.object({
   lens: reasoningLensSchema.default("coach"),
 });
 
-// ── Response shapes ────────────────────────────────────────────────────
-
-export const claimAnalysisResponseSchema = z.object({
-  components: z.array(
-    z.object({
-      type: claimComponentTypeSchema,
-      text: z.string(),
-    }),
-  ),
-  summary: z.string(),
-});
-
-// ── Memory candidate extraction (Stage B: evidence only) ─────────────
-
-export const memoryCandidateSchema = z.object({
-  entityType: z.literal("evidence"),
-  extractedStatement: z.string().min(1),
-  epistemicType: epistemicTypeSchema,
-  sourceType: sourceTypeSchema,
-  reasonToSave: z.string().min(1),
-  linkedEntityId: z.string().optional(),
-});
-
-export const extractionResponseSchema = z.object({
-  candidates: z.array(memoryCandidateSchema),
-});
-
-// ── Candidate confirmation ────────────────────────────────────────────
+// ── Candidate confirmation (API input) ──────────────────────────────
 // sourceType is intentionally absent from edits — it represents
 // provenance and must not be user-editable.
 export const confirmCandidateSchema = z.object({
@@ -100,6 +59,8 @@ export const confirmCandidateSchema = z.object({
     })
     .optional(),
 });
+
+// ── API response shapes ─────────────────────────────────────────────
 
 export const messageResponseSchema = z.object({
   id: z.string(),
