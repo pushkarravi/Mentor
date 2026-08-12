@@ -160,7 +160,10 @@ export interface Experiment {
   id: string;
   hypothesisId: string;
   description: string;
-  successSignal: string;
+  supportingSignal: string;
+  contradictingSignal: string;
+  inconclusiveSignal: string;
+  rationale: string;
   reviewDate: string | null;
   status: ExperimentStatus;
   outcome: string | null;
@@ -172,7 +175,9 @@ export interface Experiment {
 export interface ExperimentProposal {
   hypothesisId: string;
   description: string;
-  successSignal: string;
+  supportingSignal: string;
+  contradictingSignal: string;
+  inconclusiveSignal: string;
   reviewDate: string;
   rationale: string;
 }

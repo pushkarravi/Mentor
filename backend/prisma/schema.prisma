@@ -182,7 +182,10 @@ model CareerExperiment {
   userId        String
   hypothesisId  String
   description   String
-  successSignal String
+  supportingSignal String
+  contradictingSignal String
+  inconclusiveSignal String
+  rationale     String
   reviewDate    DateTime?
   status        ExperimentStatus @default(proposed)
   outcome       String?

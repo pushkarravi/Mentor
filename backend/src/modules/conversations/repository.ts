@@ -211,7 +211,10 @@ n   * contradict another — links are per-pair.
     data: {
       hypothesisId: string;
       description: string;
-      successSignal: string;
+      supportingSignal: string;
+      contradictingSignal: string;
+      inconclusiveSignal: string;
+      rationale: string;
       reviewDate?: string | null;
     },
   ): Promise<ExperimentData>;

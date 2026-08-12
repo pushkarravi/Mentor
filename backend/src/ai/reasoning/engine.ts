@@ -630,22 +630,29 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
   // ── Stage D: Experiment recommendation ──────────────────────────────
 
   /**
-   * recommendExperiment — proposes a falsifiable experiment to test a
-   * hypothesis. The proposal includes a description, a concrete success
-   * signal that would be observable, a review date, and a rationale
-   * explaining why this experiment matters and what it would test.
+   * recommendExperiment — proposes an experiment to gather information
+   * about a hypothesis. The proposal defines three outcome signals:
+   * supporting, contradicting, and inconclusive. The goal is
+   * information, not confirmation (Invariant #11).
    *
    * Key constraints:
-   * - The experiment must be falsifiable — it needs a success signal
+   * - The experiment must be falsifiable — it needs outcome signals
    *   that could plausibly NOT occur (Invariant #11).
    * - The rationale must explain why this experiment matters: why,
    *   with whom, toward what objective (Invariant #4).
    * - The proposal is a recommendation only — the user decides whether
    *   to create the experiment. No silent creation.
-   * - With a real AIProvider, the engine would use the model to reason
-   *   about the hypothesis, evidence, and career context to propose a
-   *   domain-specific experiment. With a synthetic provider, it falls
-   *   back to a deterministic template-based proposal.
+   * - The hypothesisId in the returned proposal is ALWAYS set from the
+   *   authoritative hypothesis argument, never from model output.
+   * - The review date must be a valid ISO date approximately 1-6 weeks
+   *   in the future. Model-supplied dates that fail validation are
+   *   rejected — no silent fallback.
+   * - With a real AIProvider, the engine asks the model and validates
+   *   the output with safeParse. If the model produces no valid
+   *   proposal, a controlled error is thrown — never a deterministic
+   *   substitute for real-provider output.
+   * - With a synthetic provider (Mock), a deterministic template-based
+   *   proposal is used instead.
    */
   async recommendExperiment(
     hypothesis: HypothesisData,
@@ -665,12 +672,20 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
     const systemPrompt =
       "You are a career reasoning engine. Given a career hypothesis, its " +
       "current evidence assessment, and any existing experiments, propose " +
-      "a single falsifiable experiment to test the hypothesis. " +
-      "The experiment must have a concrete, observable success signal — " +
-      "something that could plausibly NOT happen. Explain why this " +
-      "experiment matters and what objective it serves. " +
-      "Respond as JSON: { \"hypothesisId\": string, \"description\": string, " +
-      "\"successSignal\": string, \"reviewDate\": ISO date, \"rationale\": string }.";
+      "a single experiment to gather information about the hypothesis. " +
+      "The experiment must define three observable outcome signals: " +
+      "supportingSignal (would strengthen the hypothesis), " +
+      "contradictingSignal (would weaken the hypothesis), and " +
+      "inconclusiveSignal (circumstances under which the experiment did " +
+      "not meaningfully test the hypothesis). " +
+      "The goal is information, not confirmation. " +
+      "Explain why this experiment matters and what objective it serves. " +
+      "The reviewDate must be an ISO date 1-6 weeks from now. " +
+      "Respond as JSON: { \"description\": string, " +
+      "\"supportingSignal\": string, \"contradictingSignal\": string, " +
+      "\"inconclusiveSignal\": string, \"reviewDate\": ISO date, " +
+      "\"rationale\": string }. Do NOT include hypothesisId — the engine " +
+      "sets it from the authoritative hypothesis.";
 
     const evidenceSummary = assessment
       ? `Supporting: ${assessment.evidence.supporting}, ` +
@@ -691,8 +706,7 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       `Creation rationale: ${hypothesis.creationRationale}\n` +
       `Current assessment: ${evidenceSummary}\n` +
       `${existingSummary}\n\n` +
-      `Propose one falsifiable experiment. The review date should be ` +
-      `2-4 weeks from now. Respond as JSON only.`;
+      `Propose one experiment. Respond as JSON only.`;
 
     const result = await this.provider.chat({
       messages: [
@@ -701,10 +715,80 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       system: systemPrompt,
     });
 
-    const parsed = JSON.parse(result.content) as Record<string, unknown>;
-    const proposal = experimentProposalResponseSchema.parse(parsed);
+    // ── Validated provider output parsing ────────────────────────────
+    // Follow the same pattern used elsewhere: inspect structured if
+    // present, try JSON parsing of content, validate with safeParse.
+    // Never substitute a deterministic proposal for malformed
+    // real-provider output — return a controlled error instead.
 
-    return proposal;
+    let raw: Record<string, unknown> | null = null;
+
+    // 1. Check result.structured if the provider populated it.
+    if (result.structured && typeof result.structured === "object") {
+      raw = result.structured as Record<string, unknown>;
+    }
+
+    // 2. Try JSON parsing of content.
+    if (!raw && result.content) {
+      try {
+        const parsed = JSON.parse(result.content);
+        if (parsed && typeof parsed === "object") {
+          raw = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // Not valid JSON — fall through to error.
+      }
+    }
+
+    // 3. No parseable output — controlled error.
+    if (!raw) {
+      throw new RecommendationError(
+        "The reasoning provider did not return a parseable experiment " +
+          "proposal. No experiment was created.",
+      );
+    }
+
+    // 4. Validate with the AI-domain Zod schema using safeParse.
+    const parsed = experimentProposalResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new RecommendationError(
+        "The reasoning provider returned a malformed experiment proposal " +
+          "that failed validation. No experiment was created.",
+      );
+    }
+
+    // 5. Do not trust model-supplied hypothesis identity. The model
+    //    was instructed not to include hypothesisId, but if it did,
+    //    and it doesn't match the authoritative hypothesis, reject it.
+    const modelHypId = (raw as Record<string, unknown>).hypothesisId;
+    if (
+      typeof modelHypId === "string" &&
+      modelHypId !== hypothesis.id
+    ) {
+      throw new RecommendationError(
+        "The reasoning provider returned a proposal for a different " +
+          "hypothesis than requested. This is a provider error — no " +
+          "experiment was created.",
+      );
+    }
+
+    // 6. Validate the review date: must be valid ISO, in the future,
+    //    and approximately 1-6 weeks from now.
+    const reviewDateError = validateReviewDate(parsed.data.reviewDate);
+    if (reviewDateError) {
+      throw new RecommendationError(reviewDateError);
+    }
+
+    // 7. Set hypothesisId from the authoritative hypothesis argument.
+    return {
+      hypothesisId: hypothesis.id,
+      description: parsed.data.description,
+      supportingSignal: parsed.data.supportingSignal,
+      contradictingSignal: parsed.data.contradictingSignal,
+      inconclusiveSignal: parsed.data.inconclusiveSignal,
+      reviewDate: parsed.data.reviewDate,
+      rationale: parsed.data.rationale,
+    };
   }
 
   /**
@@ -712,9 +796,11 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
    * synthetic provider. Produces a template-based proposal that
    * is clearly marked as deterministic — not a real AI recommendation.
    *
-   * The proposal is still structured and falsifiable: it has a concrete
-   * success signal and a review date. It references the hypothesis
-   * statement and any untested assumptions from the assessment.
+   * The proposal defines three genuinely different outcome signals:
+   * supporting, contradicting, and inconclusive. It references the
+   * hypothesis statement and any untested assumptions from the
+   * assessment. The review date is validated to be ~2 weeks in the
+   * future.
    */
   private deterministicExperimentProposal(
     hypothesis: HypothesisData,
@@ -745,10 +831,21 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       `occurs in a specific, time-bounded situation over the next ` +
       `two weeks. Document concrete instances with dates and context.`;
 
-    const successSignal =
-      `At least one concrete, dated observation that either ` +
-      `confirms or disconfirms the hypothesis: ` +
-      `"${hypothesis.statement}"`;
+    const supportingSignal =
+      `I observe at least one concrete, dated instance where ` +
+      `"${hypothesis.statement}" is clearly true — for example, ` +
+      `a specific meeting or decision where I was explicitly excluded.`;
+
+    const contradictingSignal =
+      `I am explicitly included in at least one strategic meeting ` +
+      `or decision that the hypothesis predicted I would be excluded ` +
+      `from, and this inclusion appears deliberate rather than accidental.`;
+
+    const inconclusiveSignal =
+      `No relevant opportunities arise during the review period — ` +
+      `no strategic meetings occur, or circumstances change (e.g., ` +
+      `organizational restructuring) so the experiment cannot ` +
+      `meaningfully test the hypothesis.`;
 
     const rationale =
       `[Deterministic proposal] This experiment matters because the ` +
@@ -759,16 +856,66 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
           `${assessment.evidence.contradicting} contradicting evidence.`
         : `no assessment yet.`) +
       untestedNote +
-      ` The success signal is observable and falsifiable — ` +
-      `if no such observation occurs, the hypothesis is weakened.` +
+      ` The outcome signals are observable and falsifiable — ` +
+      `the supporting and contradicting signals are genuinely ` +
+      `different, and the inconclusive signal recognizes when the ` +
+      `experiment did not meaningfully test the hypothesis.` +
       existingNote;
 
     return {
       hypothesisId: hypothesis.id,
       description,
-      successSignal,
+      supportingSignal,
+      contradictingSignal,
+      inconclusiveSignal,
       reviewDate: reviewDateStr,
       rationale,
     };
   }
+}
+
+// ── Stage D helpers ───────────────────────────────────────────────────
+
+/**
+ * Controlled error for experiment recommendation failures. Thrown
+ * when a real provider produces no valid proposal. The caller
+ * (route handler) surfaces this as a user-visible error — never
+ * as a silent deterministic fallback.
+ */
+export class RecommendationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RecommendationError";
+  }
+}
+
+/**
+ * Validates that a review date is a valid ISO date and is
+ * approximately 1-6 weeks in the future. Returns an error message
+ * string if invalid, or null if valid.
+ *
+ * M0 range: 1-6 weeks (7-42 days). Dates outside this range,
+ * malformed strings, or historical dates are rejected.
+ */
+export function validateReviewDate(dateStr: string): string | null {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) {
+    return "The review date is not a valid date.";
+  }
+
+  const now = new Date();
+  const diffMs = date.getTime() - now.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 1) {
+    return "The review date must be in the future.";
+  }
+  if (diffDays < 7) {
+    return "The review date must be at least 1 week from now.";
+  }
+  if (diffDays > 42) {
+    return "The review date must be at most 6 weeks from now.";
+  }
+
+  return null;
 }

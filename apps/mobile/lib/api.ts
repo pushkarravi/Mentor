@@ -154,7 +154,10 @@ export const api = {
   createExperiment: (
     hypothesisId: string,
     description: string,
-    successSignal: string,
+    supportingSignal: string,
+    contradictingSignal: string,
+    inconclusiveSignal: string,
+    rationale: string,
     reviewDate?: string | null,
   ) =>
     request<Experiment>("/api/experiments", {
@@ -162,7 +165,10 @@ export const api = {
       body: JSON.stringify({
         hypothesisId,
         description,
-        successSignal,
+        supportingSignal,
+        contradictingSignal,
+        inconclusiveSignal,
+        rationale,
         reviewDate: reviewDate ?? null,
       }),
     }),

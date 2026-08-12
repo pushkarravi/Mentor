@@ -138,7 +138,10 @@ export const hypothesisDetailResponseSchema = z.object({
 export const createExperimentSchema = z.object({
   hypothesisId: z.string().min(1),
   description: z.string().min(1),
-  successSignal: z.string().min(1),
+  supportingSignal: z.string().min(1),
+  contradictingSignal: z.string().min(1),
+  inconclusiveSignal: z.string().min(1),
+  rationale: z.string().min(1),
   reviewDate: z.string().nullable().optional(),
 });
 
@@ -146,7 +149,10 @@ export const experimentResponseSchema = z.object({
   id: z.string(),
   hypothesisId: z.string(),
   description: z.string(),
-  successSignal: z.string(),
+  supportingSignal: z.string(),
+  contradictingSignal: z.string(),
+  inconclusiveSignal: z.string(),
+  rationale: z.string(),
   reviewDate: z.string().nullable(),
   status: experimentStatusSchema,
   outcome: z.string().nullable(),
@@ -158,7 +164,9 @@ export const experimentResponseSchema = z.object({
 export const experimentProposalResponseSchema = z.object({
   hypothesisId: z.string(),
   description: z.string(),
-  successSignal: z.string(),
+  supportingSignal: z.string(),
+  contradictingSignal: z.string(),
+  inconclusiveSignal: z.string(),
   reviewDate: z.string(),
   rationale: z.string(),
 });

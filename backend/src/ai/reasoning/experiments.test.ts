@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { CareerReasoningEngine } from "../reasoning/engine.js";
+import {
+  CareerReasoningEngine,
+  RecommendationError,
+  validateReviewDate,
+} from "../reasoning/engine.js";
 import { InMemoryConversationRepository } from "../../modules/conversations/in-memory.js";
 import type {
   AIProvider,
@@ -7,12 +11,9 @@ import type {
 } from "../providers/provider.js";
 import type {
   ChatResult,
-  EvidenceData,
   HypothesisData,
   ExperimentData,
   ExperimentProposal,
-  EpistemicType,
-  SourceType,
 } from "../types.js";
 
 const USER_ID = "test-user";
@@ -31,22 +32,6 @@ class StubProvider implements AIProvider {
   }
 }
 
-async function createEvidence(
-  repo: InMemoryConversationRepository,
-  overrides: Partial<{
-    sourceType: SourceType;
-    epistemicType: EpistemicType;
-    description: string;
-  }> = {},
-): Promise<EvidenceData> {
-  const defaults = {
-    sourceType: "user_report" as SourceType,
-    epistemicType: "fact" as EpistemicType,
-    description: "Test evidence",
-  };
-  return repo.addEvidence(USER_ID, { ...defaults, ...overrides });
-}
-
 async function createHypothesis(
   repo: InMemoryConversationRepository,
   overrides: Partial<{ statement: string; creationRationale: string }> = {},
@@ -58,6 +43,22 @@ async function createHypothesis(
   return repo.createHypothesis(USER_ID, { ...defaults, ...overrides });
 }
 
+/** Build a valid real-provider experiment proposal JSON response. */
+function validProposalJson(hypothesisId?: string, reviewDate?: string): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 14);
+  const obj: Record<string, string> = {
+    description: "Track meeting invitations for 2 weeks",
+    supportingSignal: "I am explicitly excluded from a strategy meeting",
+    contradictingSignal: "I am invited to a strategy meeting",
+    inconclusiveSignal: "No strategy meetings occur during the period",
+    reviewDate: reviewDate ?? d.toISOString().split("T")[0]!,
+    rationale: "This tests whether the exclusion pattern is deliberate",
+  };
+  if (hypothesisId) obj.hypothesisId = hypothesisId;
+  return JSON.stringify(obj);
+}
+
 // ── Experiment creation ──────────────────────────────────────────────
 
 describe("Stage D: Experiment creation", () => {
@@ -67,12 +68,15 @@ describe("Stage D: Experiment creation", () => {
     repo = new InMemoryConversationRepository();
   });
 
-  it("creates an experiment with proposed status and null outcome", async () => {
+  it("creates an experiment with proposed status, three signals, rationale, and null outcome", async () => {
     const hyp = await createHypothesis(repo);
     const exp = await repo.createExperiment(USER_ID, {
       hypothesisId: hyp.id,
       description: "Track meeting invitations for 2 weeks",
-      successSignal: "I am invited to at least one strategy meeting",
+      supportingSignal: "I am explicitly excluded from a strategy meeting",
+      contradictingSignal: "I am invited to a strategy meeting",
+      inconclusiveSignal: "No strategy meetings occur during the period",
+      rationale: "This tests whether the exclusion pattern is deliberate",
       reviewDate: "2025-12-01",
     });
 
@@ -81,8 +85,10 @@ describe("Stage D: Experiment creation", () => {
     expect(exp.outcome).toBeNull();
     expect(exp.outcomeRecordedAt).toBeNull();
     expect(exp.hypothesisId).toBe(hyp.id);
-    expect(exp.description).toContain("Track meeting");
-    expect(exp.successSignal).toContain("invited");
+    expect(exp.supportingSignal).toContain("excluded");
+    expect(exp.contradictingSignal).toContain("invited");
+    expect(exp.inconclusiveSignal).toContain("No strategy");
+    expect(exp.rationale).toContain("deliberate");
   });
 
   it("creating an experiment does not mutate the parent hypothesis", async () => {
@@ -94,7 +100,10 @@ describe("Stage D: Experiment creation", () => {
     await repo.createExperiment(USER_ID, {
       hypothesisId: hyp.id,
       description: "Test experiment",
-      successSignal: "Some signal",
+      supportingSignal: "Supporting obs",
+      contradictingSignal: "Contradicting obs",
+      inconclusiveSignal: "Inconclusive case",
+      rationale: "Why it matters",
     });
 
     const retrieved = await repo.getHypothesis(USER_ID, hyp.id);
@@ -103,7 +112,7 @@ describe("Stage D: Experiment creation", () => {
     expect(retrieved!.status).toBe("active");
   });
 
-  it("experiment creation is explicit — recommendExperiment does not persist", async () => {
+  it("recommendExperiment does not persist anything until explicit user creation", async () => {
     const provider = new StubProvider(
       {
         content: '{"components":[{"type":"fact","text":"t"}],"summary":"t"}',
@@ -131,38 +140,75 @@ describe("Stage D: Experiment creation", () => {
     expect(allExps).toHaveLength(0);
   });
 
+  it("accepted proposal preserves its rationale on creation", async () => {
+    const provider = new StubProvider(
+      {
+        content: '{"components":[{"type":"fact","text":"t"}],"summary":"t"}',
+        structured: null,
+      },
+      true,
+    );
+    const engine = new CareerReasoningEngine(provider);
+    const hyp = await createHypothesis(repo);
+
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+    const existing = await repo.listExperimentsByHypothesis(USER_ID, hyp.id);
+    const proposal = await engine.recommendExperiment(
+      hyp,
+      assessment,
+      existing,
+    );
+
+    // User accepts the proposal — create with the proposal's rationale.
+    const exp = await repo.createExperiment(USER_ID, {
+      hypothesisId: proposal.hypothesisId,
+      description: proposal.description,
+      supportingSignal: proposal.supportingSignal,
+      contradictingSignal: proposal.contradictingSignal,
+      inconclusiveSignal: proposal.inconclusiveSignal,
+      rationale: proposal.rationale,
+      reviewDate: proposal.reviewDate,
+    });
+
+    expect(exp.rationale).toBe(proposal.rationale);
+    expect(exp.rationale).toContain("[Deterministic");
+  });
+
+  it("manually created experiment requires a rationale", async () => {
+    const hyp = await createHypothesis(repo);
+    const exp = await repo.createExperiment(USER_ID, {
+      hypothesisId: hyp.id,
+      description: "Manual experiment",
+      supportingSignal: "Supporting",
+      contradictingSignal: "Contradicting",
+      inconclusiveSignal: "Inconclusive",
+      rationale: "I want to test this because it affects my career path",
+    });
+
+    expect(exp.rationale).toBe("I want to test this because it affects my career path");
+  });
+
   it("listExperimentsByHypothesis returns only experiments for that hypothesis", async () => {
-    const hyp1 = await createHypothesis(repo, {
-      statement: "Hypothesis 1",
-    });
-    const hyp2 = await createHypothesis(repo, {
-      statement: "Hypothesis 2",
-    });
+    const hyp1 = await createHypothesis(repo, { statement: "H1" });
+    const hyp2 = await createHypothesis(repo, { statement: "H2" });
 
-    await repo.createExperiment(USER_ID, {
-      hypothesisId: hyp1.id,
-      description: "Exp for hyp1",
-      successSignal: "Signal 1",
-    });
-    await repo.createExperiment(USER_ID, {
-      hypothesisId: hyp2.id,
-      description: "Exp for hyp2",
-      successSignal: "Signal 2",
-    });
-    await repo.createExperiment(USER_ID, {
-      hypothesisId: hyp1.id,
-      description: "Another exp for hyp1",
-      successSignal: "Signal 3",
-    });
+    const mk = (hid: string, d: string) =>
+      repo.createExperiment(USER_ID, {
+        hypothesisId: hid,
+        description: d,
+        supportingSignal: "S",
+        contradictingSignal: "C",
+        inconclusiveSignal: "I",
+        rationale: "R",
+      });
 
-    const hyp1Exps = await repo.listExperimentsByHypothesis(
-      USER_ID,
-      hyp1.id,
-    );
-    const hyp2Exps = await repo.listExperimentsByHypothesis(
-      USER_ID,
-      hyp2.id,
-    );
+    await mk(hyp1.id, "Exp for hyp1");
+    await mk(hyp2.id, "Exp for hyp2");
+    await mk(hyp1.id, "Another exp for hyp1");
+
+    const hyp1Exps = await repo.listExperimentsByHypothesis(USER_ID, hyp1.id);
+    const hyp2Exps = await repo.listExperimentsByHypothesis(USER_ID, hyp2.id);
 
     expect(hyp1Exps).toHaveLength(2);
     expect(hyp2Exps).toHaveLength(1);
@@ -183,12 +229,12 @@ describe("Stage D: recommendExperiment() — synthetic provider", () => {
         content: '{"components":[{"type":"fact","text":"t"}],"summary":"t"}',
         structured: null,
       },
-      true, // isSynthetic = true
+      true,
     );
     engine = new CareerReasoningEngine(provider);
   });
 
-  it("returns a proposal with all required fields", async () => {
+  it("returns a proposal with all required fields including three signals", async () => {
     const hyp = await createHypothesis(repo);
     const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
     const assessment = await engine.evaluateHypothesis(hyp, links);
@@ -202,15 +248,15 @@ describe("Stage D: recommendExperiment() — synthetic provider", () => {
 
     expect(proposal.hypothesisId).toBe(hyp.id);
     expect(proposal.description).toBeTruthy();
-    expect(proposal.successSignal).toBeTruthy();
+    expect(proposal.supportingSignal).toBeTruthy();
+    expect(proposal.contradictingSignal).toBeTruthy();
+    expect(proposal.inconclusiveSignal).toBeTruthy();
     expect(proposal.reviewDate).toBeTruthy();
     expect(proposal.rationale).toBeTruthy();
   });
 
-  it("proposal success signal references the hypothesis statement", async () => {
-    const hyp = await createHypothesis(repo, {
-      statement: "I am being excluded from key decisions",
-    });
+  it("proposal contains genuinely different supporting and contradicting signals", async () => {
+    const hyp = await createHypothesis(repo);
     const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
     const assessment = await engine.evaluateHypothesis(hyp, links);
     const existing = await repo.listExperimentsByHypothesis(USER_ID, hyp.id);
@@ -221,9 +267,13 @@ describe("Stage D: recommendExperiment() — synthetic provider", () => {
       existing,
     );
 
-    // The success signal must be falsifiable — it must reference the
-    // hypothesis in a way that could plausibly NOT occur.
-    expect(proposal.successSignal).toContain("I am being excluded");
+    // The supporting and contradicting signals must not be the same
+    // text, and they must describe genuinely different outcomes.
+    expect(proposal.supportingSignal).not.toBe(proposal.contradictingSignal);
+    // Supporting should describe exclusion, contradicting should
+    // describe inclusion — opposite outcomes.
+    expect(proposal.supportingSignal.toLowerCase()).toContain("excluded");
+    expect(proposal.contradictingSignal.toLowerCase()).toContain("included");
   });
 
   it("proposal rationale explains why the experiment matters", async () => {
@@ -238,21 +288,20 @@ describe("Stage D: recommendExperiment() — synthetic provider", () => {
       existing,
     );
 
-    // The rationale must explain why — not just what.
-    // Invariant #4: explain why, with whom, toward what objective.
     expect(proposal.rationale).toContain("matters");
-    // The success signal must be described as falsifiable.
     expect(proposal.rationale).toContain("falsifiable");
   });
 
   it("proposal notes existing experiments when present", async () => {
     const hyp = await createHypothesis(repo);
 
-    // Create an existing experiment first.
     await repo.createExperiment(USER_ID, {
       hypothesisId: hyp.id,
       description: "First experiment",
-      successSignal: "First signal",
+      supportingSignal: "S",
+      contradictingSignal: "C",
+      inconclusiveSignal: "I",
+      rationale: "R",
     });
 
     const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
@@ -286,7 +335,6 @@ describe("Stage D: recommendExperiment() — synthetic provider", () => {
       (reviewDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
     );
 
-    // Should be approximately 14 days (allow ±2 for timezone).
     expect(diffDays).toBeGreaterThanOrEqual(12);
     expect(diffDays).toBeLessThanOrEqual(16);
   });
@@ -303,48 +351,67 @@ describe("Stage D: recommendExperiment() — synthetic provider", () => {
       existing,
     );
 
-    // The deterministic fallback must be clearly marked so users
-    // know this is not a real AI recommendation.
     expect(proposal.rationale).toContain("[Deterministic");
   });
 });
 
-// ── recommendExperiment() — falsifiability ───────────────────────────
+// ── recommendExperiment() — real provider hardening ──────────────────
 
-describe("Stage D: Experiment falsifiability (Invariant #11)", () => {
+describe("Stage D: recommendExperiment() — real provider hardening", () => {
   let repo: InMemoryConversationRepository;
-  let engine: CareerReasoningEngine;
 
   beforeEach(() => {
     repo = new InMemoryConversationRepository();
-    const provider = new StubProvider(
-      {
-        content: '{"components":[{"type":"fact","text":"t"}],"summary":"t"}',
-        structured: null,
-      },
-      true,
-    );
-    engine = new CareerReasoningEngine(provider);
   });
 
-  it("every proposal has a success signal that could plausibly not occur", async () => {
-    const hyp = await createHypothesis(repo, {
-      statement: "My manager is excluding me from strategic decisions",
-    });
+  it("malformed real-provider output returns a controlled error, not deterministic content", async () => {
+    const provider = new StubProvider(
+      {
+        content: "This is not JSON at all.",
+        structured: null,
+      },
+      false, // isSynthetic = false → real provider path
+    );
+    const engine = new CareerReasoningEngine(provider);
+    const hyp = await createHypothesis(repo);
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+    const existing = await repo.listExperimentsByHypothesis(USER_ID, hyp.id);
 
-    // Link some supporting evidence.
-    for (let i = 0; i < 3; i++) {
-      const e = await createEvidence(repo, {
-        description: `Not invited to meeting ${i + 1}`,
-        sourceType: "user_report",
-      });
-      await repo.addHypothesisEvidenceLink(USER_ID, {
-        hypothesisId: hyp.id,
-        evidenceId: e.id,
-        linkType: "supports",
-      });
-    }
+    await expect(
+      engine.recommendExperiment(hyp, assessment, existing),
+    ).rejects.toThrow(RecommendationError);
+  });
 
+  it("real-provider output missing required fields returns a controlled error", async () => {
+    const provider = new StubProvider(
+      {
+        content: JSON.stringify({ description: "Missing other fields" }),
+        structured: null,
+      },
+      false,
+    );
+    const engine = new CareerReasoningEngine(provider);
+    const hyp = await createHypothesis(repo);
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+    const existing = await repo.listExperimentsByHypothesis(USER_ID, hyp.id);
+
+    await expect(
+      engine.recommendExperiment(hyp, assessment, existing),
+    ).rejects.toThrow(RecommendationError);
+  });
+
+  it("valid real-provider output produces a proposal with three signals", async () => {
+    const provider = new StubProvider(
+      {
+        content: validProposalJson(),
+        structured: null,
+      },
+      false,
+    );
+    const engine = new CareerReasoningEngine(provider);
+    const hyp = await createHypothesis(repo);
     const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
     const assessment = await engine.evaluateHypothesis(hyp, links);
     const existing = await repo.listExperimentsByHypothesis(USER_ID, hyp.id);
@@ -355,12 +422,142 @@ describe("Stage D: Experiment falsifiability (Invariant #11)", () => {
       existing,
     );
 
-    // The success signal must be something that could not happen —
-    // it must reference the hypothesis and be an observation, not
-    // a guaranteed outcome.
-    expect(proposal.successSignal.length).toBeGreaterThan(10);
-    expect(proposal.successSignal).toContain("confirm");
-    expect(proposal.successSignal).toContain("disconfirm");
+    expect(proposal.hypothesisId).toBe(hyp.id);
+    expect(proposal.supportingSignal).toContain("excluded");
+    expect(proposal.contradictingSignal).toContain("invited");
+    expect(proposal.inconclusiveSignal).toContain("No strategy");
+  });
+
+  it("structured output is used when content is empty", async () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    const provider = new StubProvider(
+      {
+        content: "",
+        structured: {
+          description: "Structured experiment",
+          supportingSignal: "Struct support",
+          contradictingSignal: "Struct contradict",
+          inconclusiveSignal: "Struct inconclusive",
+          reviewDate: d.toISOString().split("T")[0]!,
+          rationale: "Struct rationale",
+        },
+      },
+      false,
+    );
+    const engine = new CareerReasoningEngine(provider);
+    const hyp = await createHypothesis(repo);
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    const proposal = await engine.recommendExperiment(
+      hyp,
+      assessment,
+      null,
+    );
+
+    expect(proposal.description).toBe("Structured experiment");
+    expect(proposal.supportingSignal).toBe("Struct support");
+  });
+});
+
+// ── Hypothesis identity protection ───────────────────────────────────
+
+describe("Stage D: Hypothesis identity protection (Correction #4)", () => {
+  let repo: InMemoryConversationRepository;
+
+  beforeEach(() => {
+    repo = new InMemoryConversationRepository();
+  });
+
+  it("mismatched provider hypothesisId cannot change the authoritative hypothesis", async () => {
+    const provider = new StubProvider(
+      {
+        content: validProposalJson("wrong-hypothesis-id"),
+        structured: null,
+      },
+      false,
+    );
+    const engine = new CareerReasoningEngine(provider);
+    const hyp = await createHypothesis(repo);
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    await expect(
+      engine.recommendExperiment(hyp, assessment, null),
+    ).rejects.toThrow(RecommendationError);
+  });
+
+  it("correct hypothesisId from model is accepted and overridden by authoritative id", async () => {
+    const hyp = await createHypothesis(repo);
+    const provider = new StubProvider(
+      {
+        content: validProposalJson(hyp.id),
+        structured: null,
+      },
+      false,
+    );
+    const engine = new CareerReasoningEngine(provider);
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    const proposal = await engine.recommendExperiment(
+      hyp,
+      assessment,
+      null,
+    );
+
+    // hypothesisId is always set from the authoritative argument.
+    expect(proposal.hypothesisId).toBe(hyp.id);
+  });
+});
+
+// ── Review date validation ───────────────────────────────────────────
+
+describe("Stage D: Review date validation (Correction #5)", () => {
+  it("validates a date 2 weeks in the future", () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    expect(validateReviewDate(d.toISOString().split("T")[0]!)).toBeNull();
+  });
+
+  it("rejects an invalid date string", () => {
+    expect(validateReviewDate("not-a-date")).not.toBeNull();
+  });
+
+  it("rejects a past date", () => {
+    expect(validateReviewDate("2020-01-01")).not.toBeNull();
+  });
+
+  it("rejects a date less than 1 week in the future", () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 3);
+    expect(validateReviewDate(d.toISOString().split("T")[0]!)).not.toBeNull();
+  });
+
+  it("rejects a date more than 6 weeks in the future", () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 50);
+    expect(validateReviewDate(d.toISOString().split("T")[0]!)).not.toBeNull();
+  });
+
+  it("real-provider proposal with past review date is rejected", async () => {
+    const repo = new InMemoryConversationRepository();
+    const provider = new StubProvider(
+      {
+        content: validProposalJson(undefined, "2020-01-01"),
+        structured: null,
+      },
+      false,
+    );
+    const engine = new CareerReasoningEngine(provider);
+    const hyp = await createHypothesis(repo);
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    await expect(
+      engine.recommendExperiment(hyp, assessment, null),
+    ).rejects.toThrow(RecommendationError);
   });
 });
 
@@ -378,7 +575,10 @@ describe("Stage D: No outcome recording (Stage E not started)", () => {
     const exp = await repo.createExperiment(USER_ID, {
       hypothesisId: hyp.id,
       description: "Test experiment",
-      successSignal: "Test signal",
+      supportingSignal: "S",
+      contradictingSignal: "C",
+      inconclusiveSignal: "I",
+      rationale: "R",
     });
 
     expect(exp.outcome).toBeNull();
@@ -391,7 +591,10 @@ describe("Stage D: No outcome recording (Stage E not started)", () => {
       userId: "test",
       hypothesisId: "hyp1",
       description: "Test",
-      successSignal: "Signal",
+      supportingSignal: "S",
+      contradictingSignal: "C",
+      inconclusiveSignal: "I",
+      rationale: "R",
       reviewDate: null,
       status: "proposed",
       outcome: null,
@@ -400,7 +603,6 @@ describe("Stage D: No outcome recording (Stage E not started)", () => {
       updatedAt: new Date().toISOString(),
     };
 
-    // The fields exist but are null — Stage E will populate them.
     expect(exp.outcome).toBeNull();
     expect(exp.outcomeRecordedAt).toBeNull();
   });
@@ -409,19 +611,21 @@ describe("Stage D: No outcome recording (Stage E not started)", () => {
 // ── Experiment proposal type shape ───────────────────────────────────
 
 describe("Stage D: ExperimentProposal type", () => {
-  it("has all required fields", () => {
+  it("has all required fields including three signals", () => {
     const proposal: ExperimentProposal = {
       hypothesisId: "hyp1",
       description: "Test experiment",
-      successSignal: "Observable outcome",
+      supportingSignal: "Supporting observation",
+      contradictingSignal: "Contradicting observation",
+      inconclusiveSignal: "Inconclusive circumstance",
       reviewDate: "2025-12-01",
       rationale: "Why this matters",
     };
 
     expect(proposal.hypothesisId).toBe("hyp1");
-    expect(proposal.description).toBeTruthy();
-    expect(proposal.successSignal).toBeTruthy();
-    expect(proposal.reviewDate).toBeTruthy();
+    expect(proposal.supportingSignal).toBeTruthy();
+    expect(proposal.contradictingSignal).toBeTruthy();
+    expect(proposal.inconclusiveSignal).toBeTruthy();
     expect(proposal.rationale).toBeTruthy();
   });
 });

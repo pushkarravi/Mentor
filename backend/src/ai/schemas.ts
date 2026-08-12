@@ -99,9 +99,11 @@ export const experimentStatusSchema = z.enum([
 ]);
 
 export const experimentProposalResponseSchema = z.object({
-  hypothesisId: z.string(),
+  hypothesisId: z.string().optional(),
   description: z.string().min(1),
-  successSignal: z.string().min(1),
+  supportingSignal: z.string().min(1),
+  contradictingSignal: z.string().min(1),
+  inconclusiveSignal: z.string().min(1),
   reviewDate: z.string(),
   rationale: z.string().min(1),
 });

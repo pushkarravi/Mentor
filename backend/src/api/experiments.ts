@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { ConversationRepository } from "../modules/conversations/repository.js";
 import type { CareerReasoningEngine } from "../ai/reasoning/engine.js";
+import { RecommendationError } from "../ai/reasoning/engine.js";
 import { createExperimentSchema } from "./schemas.js";
 
 /**
@@ -89,12 +90,18 @@ export function experimentRoutes(
     // Get any existing experiments for this hypothesis.
     const existing = await repo.listExperimentsByHypothesis(userId, id);
 
-    const proposal = await engine.recommendExperiment(
-      hyp,
-      assessment,
-      existing,
-    );
-
-    return reply.send(proposal);
+    try {
+      const proposal = await engine.recommendExperiment(
+        hyp,
+        assessment,
+        existing,
+      );
+      return reply.send(proposal);
+    } catch (e) {
+      if (e instanceof RecommendationError) {
+        return reply.status(502).send({ error: e.message });
+      }
+      throw e;
+    }
   });
 }

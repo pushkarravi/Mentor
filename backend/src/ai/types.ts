@@ -182,14 +182,26 @@ export interface HypothesisEvidenceLink {
 // ── Career Experiment (Stage D) ──────────────────────────────────────────
 
 /**
- * ExperimentData — a test designed to falsify or support a career
- * hypothesis. Each experiment has a concrete success signal that,
- * if observed, would move the hypothesis toward confirmation, and
- * if not observed, would weaken it.
+ * ExperimentData — a test designed to gather information about a
+ * career hypothesis. Each experiment defines three outcome signals:
+ *
+ * - supportingSignal: an observable outcome that would strengthen
+ *   the hypothesis.
+ * - contradictingSignal: an observable outcome that would weaken
+ *   the hypothesis.
+ * - inconclusiveSignal: circumstances under which the experiment
+ *   did not meaningfully test the hypothesis.
+ *
+ * The goal of an experiment is information, not confirmation.
+ * Stage E/F will use these signals to classify recorded outcomes
+ * as supports / contradicts / inconclusive.
  *
  * Experiments are explicitly created by the user, not auto-created
  * from AI suggestions. The engine can recommend a proposal, but the
- * user decides whether to create it.
+ * user decides whether to create it. The rationale — why the
+ * experiment matters and what it tests — is persisted at creation
+ * time, whether the experiment was accepted from a proposal or
+ * created manually.
  *
  * Outcome recording and hypothesis reassessment are Stage E/F —
  * not implemented here. The `outcome` and `outcomeRecordedAt` fields
@@ -201,7 +213,11 @@ export interface ExperimentData {
   userId: string;
   hypothesisId: string;
   description: string;
-  successSignal: string;
+  supportingSignal: string;
+  contradictingSignal: string;
+  inconclusiveSignal: string;
+  /** Why the experiment matters and what it tests. Persisted at creation. */
+  rationale: string;
   /** ISO date string for when the user should review the outcome. */
   reviewDate: string | null;
   status: ExperimentStatus;
@@ -214,14 +230,17 @@ export interface ExperimentData {
 
 /**
  * ExperimentProposal — the output of recommendExperiment().
- * A proposed experiment with a description, success signal, review
- * date, and rationale explaining why it matters. The user reviews
- * this proposal and decides whether to create the experiment.
+ * A proposed experiment with a description, three outcome signals
+ * (supporting, contradicting, inconclusive), a review date, and a
+ * rationale explaining why it matters and what it tests. The user
+ * reviews this proposal and decides whether to create the experiment.
  */
 export interface ExperimentProposal {
   hypothesisId: string;
   description: string;
-  successSignal: string;
+  supportingSignal: string;
+  contradictingSignal: string;
+  inconclusiveSignal: string;
   reviewDate: string;
   rationale: string;
 }

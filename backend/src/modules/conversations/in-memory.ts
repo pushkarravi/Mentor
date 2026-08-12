@@ -490,7 +490,10 @@ export class InMemoryConversationRepository
     data: {
       hypothesisId: string;
       description: string;
-      successSignal: string;
+      supportingSignal: string;
+      contradictingSignal: string;
+      inconclusiveSignal: string;
+      rationale: string;
       reviewDate?: string | null;
     },
   ): Promise<ExperimentData> {
@@ -500,7 +503,10 @@ export class InMemoryConversationRepository
       userId,
       hypothesisId: data.hypothesisId,
       description: data.description,
-      successSignal: data.successSignal,
+      supportingSignal: data.supportingSignal,
+      contradictingSignal: data.contradictingSignal,
+      inconclusiveSignal: data.inconclusiveSignal,
+      rationale: data.rationale,
       reviewDate: data.reviewDate ?? null,
       status: "proposed",
       outcome: null,

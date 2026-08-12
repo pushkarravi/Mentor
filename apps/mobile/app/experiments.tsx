@@ -41,7 +41,10 @@ export default function ExperimentsScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [newHypothesisId, setNewHypothesisId] = useState("");
   const [newDescription, setNewDescription] = useState("");
-  const [newSuccessSignal, setNewSuccessSignal] = useState("");
+  const [newSupporting, setNewSupporting] = useState("");
+  const [newContradicting, setNewContradicting] = useState("");
+  const [newInconclusive, setNewInconclusive] = useState("");
+  const [newRationale, setNewRationale] = useState("");
   const [newReviewDate, setNewReviewDate] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -76,8 +79,17 @@ export default function ExperimentsScreen() {
     hypotheses.find((h) => h.id === id)?.statement ?? "Unknown hypothesis";
 
   const handleCreate = useCallback(async () => {
-    if (!newHypothesisId || !newDescription.trim() || !newSuccessSignal.trim()) {
-      setError("Hypothesis, description, and success signal are required.");
+    if (
+      !newHypothesisId ||
+      !newDescription.trim() ||
+      !newSupporting.trim() ||
+      !newContradicting.trim() ||
+      !newInconclusive.trim() ||
+      !newRationale.trim()
+    ) {
+      setError(
+        "Hypothesis, description, all three signals, and rationale are required.",
+      );
       return;
     }
     setCreating(true);
@@ -86,13 +98,19 @@ export default function ExperimentsScreen() {
       await api.createExperiment(
         newHypothesisId,
         newDescription,
-        newSuccessSignal,
+        newSupporting,
+        newContradicting,
+        newInconclusive,
+        newRationale,
         newReviewDate || null,
       );
       setShowCreate(false);
       setNewHypothesisId("");
       setNewDescription("");
-      setNewSuccessSignal("");
+      setNewSupporting("");
+      setNewContradicting("");
+      setNewInconclusive("");
+      setNewRationale("");
       setNewReviewDate("");
       await load();
     } catch (e) {
@@ -103,7 +121,10 @@ export default function ExperimentsScreen() {
   }, [
     newHypothesisId,
     newDescription,
-    newSuccessSignal,
+    newSupporting,
+    newContradicting,
+    newInconclusive,
+    newRationale,
     newReviewDate,
     load,
   ]);
@@ -132,7 +153,10 @@ export default function ExperimentsScreen() {
       await api.createExperiment(
         proposal.hypothesisId,
         proposal.description,
-        proposal.successSignal,
+        proposal.supportingSignal,
+        proposal.contradictingSignal,
+        proposal.inconclusiveSignal,
+        proposal.rationale,
         proposal.reviewDate,
       );
       setShowProposal(false);
@@ -174,9 +198,9 @@ export default function ExperimentsScreen() {
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>No experiments yet</Text>
             <Text style={styles.emptyText}>
-              Create an experiment to test a hypothesis. Each experiment has a
-              concrete success signal — something that could plausibly not
-              happen.
+              Create an experiment to gather information about a hypothesis.
+              Each experiment defines what would support, contradict, or be
+              inconclusive for the hypothesis.
             </Text>
           </View>
         ) : (
@@ -204,9 +228,21 @@ export default function ExperimentsScreen() {
                     </Text>
                   )}
                 </View>
-                <View style={styles.signalBox}>
-                  <Text style={styles.signalLabel}>Success Signal</Text>
-                  <Text style={styles.signalText}>{exp.successSignal}</Text>
+                <View style={[styles.signalBox, { borderLeftColor: "#059669" }]}>
+                  <Text style={styles.signalLabel}>Would Support</Text>
+                  <Text style={styles.signalText}>{exp.supportingSignal}</Text>
+                </View>
+                <View style={[styles.signalBox, { borderLeftColor: "#dc2626" }]}>
+                  <Text style={styles.signalLabel}>Would Contradict</Text>
+                  <Text style={styles.signalText}>{exp.contradictingSignal}</Text>
+                </View>
+                <View style={[styles.signalBox, { borderLeftColor: "#8b8b8b" }]}>
+                  <Text style={styles.signalLabel}>Inconclusive If</Text>
+                  <Text style={styles.signalText}>{exp.inconclusiveSignal}</Text>
+                </View>
+                <View style={[styles.signalBox, { borderLeftColor: "#2c3e50" }]}>
+                  <Text style={styles.signalLabel}>Why This Matters</Text>
+                  <Text style={styles.signalText}>{exp.rationale}</Text>
                 </View>
               </View>
             ))}
@@ -218,9 +254,8 @@ export default function ExperimentsScreen() {
           <View style={styles.recommendSection}>
             <Text style={styles.sectionTitle}>Get an Experiment Suggestion</Text>
             <Text style={styles.hint}>
-              The engine will propose a falsifiable experiment based on the
-              hypothesis and its current evidence. You decide whether to create
-              it.
+              The engine will propose an experiment based on the hypothesis
+              and its current evidence. You decide whether to create it.
             </Text>
             <View style={styles.hypPicker}>
               {hypotheses.map((h) => (
@@ -318,17 +353,65 @@ export default function ExperimentsScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>Success signal</Text>
+              <Text style={styles.label}>Would support the hypothesis</Text>
               <Text style={styles.hint}>
-                A concrete, observable outcome that would support the
-                hypothesis. It must be something that could plausibly NOT
-                happen.
+                An observable outcome that would strengthen the hypothesis.
               </Text>
               <TextInput
                 style={[styles.input, styles.multiline]}
-                value={newSuccessSignal}
-                onChangeText={setNewSuccessSignal}
-                placeholder="What specific observation would confirm or disconfirm?"
+                value={newSupporting}
+                onChangeText={setNewSupporting}
+                placeholder="What observation would support this hypothesis?"
+                placeholderTextColor="#999"
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Would contradict the hypothesis</Text>
+              <Text style={styles.hint}>
+                An observable outcome that would weaken the hypothesis.
+              </Text>
+              <TextInput
+                style={[styles.input, styles.multiline]}
+                value={newContradicting}
+                onChangeText={setNewContradicting}
+                placeholder="What observation would contradict this hypothesis?"
+                placeholderTextColor="#999"
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Inconclusive if</Text>
+              <Text style={styles.hint}>
+                Circumstances under which the experiment did not meaningfully
+                test the hypothesis.
+              </Text>
+              <TextInput
+                style={[styles.input, styles.multiline]}
+                value={newInconclusive}
+                onChangeText={setNewInconclusive}
+                placeholder="When would this experiment not tell us anything?"
+                placeholderTextColor="#999"
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Why this matters</Text>
+              <Text style={styles.hint}>
+                Explain why this experiment matters and what it is intended to
+                test. This is saved with the experiment.
+              </Text>
+              <TextInput
+                style={[styles.input, styles.multiline]}
+                value={newRationale}
+                onChangeText={setNewRationale}
+                placeholder="Why does this experiment matter?"
                 placeholderTextColor="#999"
                 multiline
                 numberOfLines={3}
@@ -389,11 +472,30 @@ export default function ExperimentsScreen() {
                 <Text style={styles.proposalText}>{proposal.description}</Text>
               </View>
 
-              <View style={styles.proposalBox}>
-                <Text style={styles.proposalLabel}>Success Signal</Text>
+              <View style={[styles.proposalBox, { borderLeftColor: "#059669" }]}>
+                <Text style={styles.proposalLabel}>Would Support</Text>
                 <Text style={styles.proposalText}>
-                  {proposal.successSignal}
+                  {proposal.supportingSignal}
                 </Text>
+              </View>
+
+              <View style={[styles.proposalBox, { borderLeftColor: "#dc2626" }]}>
+                <Text style={styles.proposalLabel}>Would Contradict</Text>
+                <Text style={styles.proposalText}>
+                  {proposal.contradictingSignal}
+                </Text>
+              </View>
+
+              <View style={[styles.proposalBox, { borderLeftColor: "#8b8b8b" }]}>
+                <Text style={styles.proposalLabel}>Inconclusive If</Text>
+                <Text style={styles.proposalText}>
+                  {proposal.inconclusiveSignal}
+                </Text>
+              </View>
+
+              <View style={styles.proposalRationaleBox}>
+                <Text style={styles.proposalLabel}>Why This Matters</Text>
+                <Text style={styles.proposalText}>{proposal.rationale}</Text>
               </View>
 
               <View style={styles.proposalBox}>
@@ -401,11 +503,6 @@ export default function ExperimentsScreen() {
                 <Text style={styles.proposalText}>
                   {proposal.reviewDate.split("T")[0]}
                 </Text>
-              </View>
-
-              <View style={styles.proposalRationaleBox}>
-                <Text style={styles.proposalLabel}>Why This Matters</Text>
-                <Text style={styles.proposalText}>{proposal.rationale}</Text>
               </View>
 
               <Pressable
@@ -545,8 +642,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8f9fa",
     borderRadius: 8,
     padding: 12,
+    marginBottom: 8,
     borderLeftWidth: 3,
-    borderLeftColor: "#2563eb",
   },
   signalLabel: {
     fontSize: 11,
@@ -560,7 +657,6 @@ const styles = StyleSheet.create({
     color: "#2c3e50",
     lineHeight: 20,
   },
-  // Recommend section
   recommendSection: {
     marginTop: 32,
     paddingTop: 24,
@@ -601,7 +697,6 @@ const styles = StyleSheet.create({
   hypPickerTextSelected: {
     fontWeight: "600",
   },
-  // Modal
   modalContainer: {
     flex: 1,
     backgroundColor: "#f5f5f7",
@@ -678,7 +773,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  // Proposal
   proposalBox: {
     backgroundColor: "#fff",
     borderRadius: 10,
