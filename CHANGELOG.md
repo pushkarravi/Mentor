@@ -2,7 +2,7 @@
 
 All notable changes to Mentor are documented in this file.
 
-## [Unreleased] — M0 Stages A–F: Core Reasoning Loop (structurally implemented, PostgreSQL-backed)
+## [Unreleased] — M0 Stages A–F: Core Reasoning Loop (structurally implemented, Prisma/PostgreSQL-backed)
 
 ### Added
 
@@ -128,34 +128,44 @@ npx prisma migrate dev --name m0_initial_schema
 
 - **Prisma schema**: `backend/prisma/schema.prisma` — all M0 tables including
   `PendingCandidate` (persistent candidate queue, survives restarts) and
-  `OutcomeClassification` enum. Migration `m0_initial_schema` applied to Supabase.
-  Migration SQL committed at
+  `OutcomeClassification` enum. Migration `m0_initial_schema` committed at
   `backend/prisma/migrations/20260812000000_m0_initial_schema/migration.sql`.
-- **SupabaseConversationRepository** (`backend/src/modules/conversations/supabase-repo.ts`):
-  Implements the full `ConversationRepository` interface using the Supabase JS client
-  (PostgREST API). All queries scoped by userId. Three atomic methods
-  (confirmPendingCandidate, recordExperimentOutcomeAtomic,
-  applyExperimentOutcomeReviewAtomic) perform multi-step persistence with best-effort
-  cleanup on failure. Relationship-sensitive values in the review method are derived from
-  the stored Experiment, not the caller.
+  The migration is reproducible — a fresh database created from this migration alone
+  passes the full contract suite.
+- **PrismaConversationRepository** (`backend/src/modules/conversations/prisma.ts`):
+  Implements the full `ConversationRepository` interface using `@prisma/client`.
+  Three atomic methods (confirmPendingCandidate, recordExperimentOutcomeAtomic,
+  applyExperimentOutcomeReviewAtomic) use real `prisma.$transaction` — no best-effort
+  cleanup. Relationship-sensitive values in the review method are derived from the
+  stored Experiment, not the caller.
+- **SupabaseConversationRepository** (temporary, kept for comparison):
+  PostgREST-based implementation. NOT the M0 persistence implementation — uses
+  best-effort cleanup instead of real transactions. Kept temporarily so the Supabase
+  contract tests can run in the Bolt hosted environment where no direct Postgres
+  connection is available.
 - **Repository factory** (`backend/src/modules/conversations/factory.ts`):
-  `REPOSITORY_PROVIDER=supabase` or `REPOSITORY_PROVIDER=memory`. Auto-detection defaults
-  to Supabase when credentials are available. Routes and CareerReasoningEngine unchanged.
+  `REPOSITORY_PROVIDER=prisma` or `REPOSITORY_PROVIDER=memory`. Auto-detection
+  defaults to Prisma when `DATABASE_URL` is available. Backend persistence uses
+  `DATABASE_URL` only — no `VITE_*` variables.
 - **M0 user bootstrap**: `m0-local-user` upserted at database setup. Isolated for future
   replacement by authenticated user IDs.
 - **Shared contract tests**: `backend/src/modules/conversations/contract-tests.ts` —
-  34 tests run against both in-memory and Supabase implementations.
+  34 tests run against in-memory, Supabase, and Prisma implementations.
+- **Transaction rollback tests**: 5 tests verify that failed transactions leave no
+  partial state (Evidence, Memory, HypothesisEvidence links, hypothesis updates).
 - **Persistence/restart tests**: 3 tests verify data survives repository instance
   recreation across 4 separate sessions (career context, conversations, full M0 loop).
 - **209 tests passing** (138 existing + 34 in-memory contract + 34 Supabase contract +
-  3 persistence/restart). Typecheck, lint, frontend typecheck all green.
+  3 persistence/restart). 34 Prisma contract tests + 5 rollback tests run when
+  `DATABASE_URL` is configured. Typecheck, lint, frontend typecheck all green.
 
 ### M0 status
 
-**Structurally implemented and PostgreSQL-backed, not yet product-validated.** The loop
-is closed, data persists to real PostgreSQL, and 209 tests pass including cross-restart
-persistence tests. The remaining acceptance step is Golden Career Scenario evaluation
-with a real AIProvider. Do not begin M1 until that is complete.
+**Structurally implemented and Prisma/PostgreSQL-backed, not yet product-validated.** The
+loop is closed, data persists to real PostgreSQL via Prisma with real `prisma.$transaction`
+for atomicity, and 209 tests pass including cross-restart persistence tests. The remaining
+acceptance step is Golden Career Scenario evaluation with a real AIProvider. Do not begin
+M1 until that is complete.
 
 ### Not yet implemented (deferred)
 

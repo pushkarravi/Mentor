@@ -116,9 +116,9 @@ See ARCHITECTURE.md § Repository structure. Note the addition of `backend/src/a
 ## How to run the application
 
 See README.md "Getting started" for installation, database setup, and running instructions.
-The backend uses a repository factory: `REPOSITORY_PROVIDER=supabase` for PostgreSQL,
-`REPOSITORY_PROVIDER=memory` for in-memory (tests/fast dev), or `auto` (default — uses
-Supabase when credentials are available).
+The backend uses a repository factory: `REPOSITORY_PROVIDER=prisma` for PostgreSQL
+(via `DATABASE_URL`), `REPOSITORY_PROVIDER=memory` for in-memory (tests/fast dev),
+or `auto` (default — uses Prisma when `DATABASE_URL` is available).
 
 ## How to test
 
@@ -221,9 +221,9 @@ _(Update this section every milestone.)_
   (`validateEpistemicPair` rejects ai_inference+fact at extraction and persistence boundaries).
   Qualitative confidence computation (`computeConfidence` — tentative/moderate/strong,
   provisional M0 heuristic). Four reasoning-lens prompts (Coach, Challenger, Decision Advisor,
-  Extraction v1). Retrieval module. In-memory conversation repository with evidence, memory,
-  pending candidates, hypotheses, evidence links, experiments, and atomic outcome/review
-  methods. Fastify routes for context, conversations, candidates, evidence, memory,
+  Extraction v1). Retrieval module. Three repository implementations: in-memory (for tests),
+  Prisma (for real PostgreSQL via `prisma.$transaction`), and Supabase (temporary, for
+  comparison). Fastify routes for context, conversations, candidates, evidence, memory,
   hypotheses, and experiments (including outcome recording and review). Zod validation
   including `claimComponentTypeSchema`, `epistemicTypeSchema`, `recordOutcomeSchema`
   (with `superRefine` for observedFact requirement), and strict `reviewDateSchema`.
@@ -242,25 +242,36 @@ _(Update this section every milestone.)_
   committed at `backend/prisma/migrations/20260812000000_m0_initial_schema/migration.sql`.
 - **No auth** — M0 is localhost-only, single-user, per ARCHITECTURE.md § 2. Auth is documented as
   a future trigger, not implemented.
-- **PostgreSQL-backed**: `SupabaseConversationRepository` implements the full
-  `ConversationRepository` interface using the Supabase JS client (PostgREST API).
-  Repository factory in `backend/src/modules/conversations/factory.ts` selects between
-  in-memory and Supabase based on `REPOSITORY_PROVIDER` env var. The M0 local user
+- **Prisma/PostgreSQL-backed**: `PrismaConversationRepository` implements the full
+  `ConversationRepository` interface using `@prisma/client` with real `prisma.$transaction`
+  for the three integrity-critical operations (confirmPendingCandidate,
+  recordExperimentOutcomeAtomic, applyExperimentOutcomeReviewAtomic). Repository factory
+  in `backend/src/modules/conversations/factory.ts` selects between in-memory and Prisma
+  based on `REPOSITORY_PROVIDER` env var (defaults to Prisma when `DATABASE_URL` is set).
+  Backend persistence uses `DATABASE_URL` only — no `VITE_*` variables. The M0 local user
   (`m0-local-user`) is upserted at database setup time. 209 tests passing (138 existing +
-  34 in-memory contract + 34 Supabase contract + 3 persistence/restart), typecheck, lint,
-  and frontend typecheck all green.
+  34 in-memory contract + 34 Supabase contract + 3 persistence/restart), plus 34 Prisma
+  contract tests and 5 transaction rollback tests that run when `DATABASE_URL` is available.
+  Typecheck, lint, and frontend typecheck all green.
+- **SupabaseConversationRepository** (temporary): A PostgREST-based implementation kept
+  temporarily for comparison. It is NOT the M0 persistence implementation — use
+  `PrismaConversationRepository` for normal M0 PostgreSQL execution. The Supabase repo
+  uses best-effort cleanup instead of real transactions, which does not satisfy the
+  atomicity contract.
 
-### M0 status: structurally implemented and PostgreSQL-backed, not yet product-validated
+### M0 status: structurally implemented and Prisma/PostgreSQL-backed, not yet product-validated
 
-The M0 loop is **structurally implemented and PostgreSQL-backed** — all stages (A through F)
-are implemented, the data flows correctly from context through to updated hypothesis,
-persistence is atomic, epistemic invariants are enforced in code, the transaction boundary
-protects relationship-sensitive values from caller manipulation, data persists to real
-PostgreSQL via Supabase, and 209 tests verify the plumbing, validation, edge cases,
-integrity guards, and cross-restart persistence. However, **M0 is not yet
-product-validated**. Unit tests verify structure, not reasoning. The `MockProvider` and
-`StubProvider` return deterministic placeholders, not genuine career reasoning. The
-following remain before M0 can be called product-validated:
+The M0 loop is **structurally implemented and Prisma/PostgreSQL-backed** — all stages
+(A through F) are implemented, the data flows correctly from context through to updated
+hypothesis, persistence is atomic via `prisma.$transaction`, epistemic invariants are
+enforced in code, the transaction boundary protects relationship-sensitive values from
+caller manipulation, data persists to real PostgreSQL, and 209 tests verify the plumbing,
+validation, edge cases, integrity guards, and cross-restart persistence. The committed
+Prisma migration is reproducible — a fresh database created from the committed migration
+SQL alone passes the full contract suite. However, **M0 is not yet product-validated**.
+Unit tests verify structure, not reasoning. The `MockProvider` and `StubProvider`
+return deterministic placeholders, not genuine career reasoning. The following remain
+before M0 can be called product-validated:
 
 1. **Golden Career Scenarios evaluation**: Manually exercise scenarios #1, #3, #4, #5, #8, #10
    from `evaluations/golden-career-scenarios.md` against the full reasoning loop using a real

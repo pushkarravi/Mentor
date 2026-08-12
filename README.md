@@ -187,7 +187,7 @@ This is intentional: the project should be possible to continue with Claude, Cha
 ### Prerequisites
 
 - Node.js 22+
-- For PostgreSQL: a Supabase project (or local Docker PostgreSQL)
+- For PostgreSQL: a local PostgreSQL instance (or Docker)
 
 ### Installation
 
@@ -206,9 +206,9 @@ npm test
 
 The backend uses a repository factory to select persistence:
 
-- `REPOSITORY_PROVIDER=supabase` — uses SupabaseConversationRepository (real PostgreSQL)
+- `REPOSITORY_PROVIDER=prisma` — uses PrismaConversationRepository (real PostgreSQL via DATABASE_URL)
 - `REPOSITORY_PROVIDER=memory` — uses InMemoryConversationRepository (fast tests, data lost on restart)
-- Not set / `auto` — uses Supabase when `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are available, in-memory otherwise
+- Not set / `auto` — uses Prisma when `DATABASE_URL` is available, in-memory otherwise
 
 ```bash
 cd backend
@@ -226,12 +226,14 @@ npm run dev
 
 ### Database setup
 
-The Prisma schema is in `backend/prisma/schema.prisma`. The migration has been applied to the project's Supabase instance. For local PostgreSQL:
+The Prisma schema is in `backend/prisma/schema.prisma`. The migration is committed at
+`backend/prisma/migrations/20260812000000_m0_initial_schema/migration.sql`.
+A developer cloning the repository can recreate the database from this migration alone:
 
 ```bash
 cd backend
 docker compose up -d
-npx prisma migrate dev --name m0_initial_schema
+npx prisma migrate deploy
 ```
 
 ### M0 user bootstrap
@@ -240,9 +242,15 @@ M0 is single-user without authentication. A local user with ID `m0-local-user` i
 
 ## Project status
 
-**M0 structurally implemented and PostgreSQL-backed, not yet product-validated.**
+**M0 structurally implemented and Prisma/PostgreSQL-backed, not yet product-validated.**
 
-All six stages (A through F) are implemented, the core reasoning loop is closed, data persists to PostgreSQL, and 209 tests pass (including 34 Supabase-backed contract tests and 3 persistence/restart tests). However, reasoning quality has not yet been evaluated against the Golden Career Scenarios with a real AI provider — that is the remaining acceptance step before M0 can be called complete.
+All six stages (A through F) are implemented, the core reasoning loop is closed, data persists
+to PostgreSQL via Prisma with real `prisma.$transaction` for atomicity, and 209 tests pass
+(including 34 contract tests run against both in-memory and Supabase implementations, plus
+3 persistence/restart tests). The Prisma contract suite and transaction rollback tests are
+written and will run when `DATABASE_URL` is configured. However, reasoning quality has not yet
+been evaluated against the Golden Career Scenarios with a real AI provider — that is the
+remaining acceptance step before M0 can be called complete.
 
 This repository should not yet be considered a finished application or production-ready career-advice system.
 

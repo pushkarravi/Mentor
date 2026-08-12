@@ -32,12 +32,11 @@ async function main() {
   // Reasoning engine — the layer between routes and the AI provider
   const engine = new CareerReasoningEngine(provider);
 
-  // Repository — Supabase-backed when credentials are available,
+  // Repository — Prisma-backed when DATABASE_URL is available,
   // in-memory otherwise. Selection is in the factory, not here.
   const repo = createRepository({
     provider: env.repositoryProvider,
-    supabaseUrl: env.supabaseUrl,
-    supabaseAnonKey: env.supabaseAnonKey,
+    databaseUrl: env.databaseUrl,
   });
 
   // M0: localhost-only, single user. No auth.
@@ -54,14 +53,14 @@ async function main() {
   app.get("/api/health", async () => ({
     status: "ok",
     provider: env.aiProvider,
-    database: env.useInMemoryDb ? "in-memory" : "supabase",
+    database: env.databaseUrl ? "prisma" : "in-memory",
   }));
 
   try {
     await app.listen({ port: env.port, host: "0.0.0.0" });
     console.log(
       `Mentor backend running on port ${env.port} ` +
-        `(provider: ${env.aiProvider}, db: ${env.useInMemoryDb ? "in-memory" : "supabase"})`,
+        `(provider: ${env.aiProvider}, db: ${env.databaseUrl ? "prisma" : "in-memory"})`,
     );
   } catch (err) {
     app.log.error(err);

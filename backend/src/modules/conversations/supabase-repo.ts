@@ -115,6 +115,7 @@ export class SupabaseConversationRepository
       userId,
       title: title ?? null,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
     if (error) throw new Error(`Failed to create conversation: ${error.message}`);
     return {
@@ -668,13 +669,21 @@ export class SupabaseConversationRepository
       linkType: LinkType;
     },
   ): Promise<HypothesisEvidenceLink> {
+    // Verify ownership through the hypothesis
+    const { data: hyp } = await this.client
+      .from("CareerHypothesis")
+      .select("id")
+      .eq("id", data.hypothesisId)
+      .eq("userId", userId)
+      .maybeSingle();
+    if (!hyp) throw new Error("Hypothesis not found for this user");
+
     // Check for existing link (upsert behavior matching in-memory)
     const { data: existing } = await this.client
       .from("HypothesisEvidence")
       .select("*")
       .eq("hypothesisId", data.hypothesisId)
       .eq("evidenceId", data.evidenceId)
-      .eq("userId", userId)
       .maybeSingle();
 
     if (existing) {
@@ -695,7 +704,6 @@ export class SupabaseConversationRepository
     const id = generateId("link");
     const { error } = await this.client.from("HypothesisEvidence").insert({
       id,
-      userId,
       hypothesisId: data.hypothesisId,
       evidenceId: data.evidenceId,
       linkType: data.linkType,
@@ -716,14 +724,16 @@ export class SupabaseConversationRepository
     userId: string,
     hypothesisId: string,
   ): Promise<Array<{ link: HypothesisEvidenceLink; evidence: EvidenceData }>> {
+    // Query through the hypothesis to enforce ownership
     const { data, error } = await this.client
       .from("HypothesisEvidence")
       .select(`
-        id, userId, hypothesisId, evidenceId, linkType, createdAt,
-        Evidence!inner (id, userId, sourceType, epistemicType, description, personId, occurredAt, createdAt, updatedAt)
+        id, hypothesisId, evidenceId, linkType, createdAt,
+        Evidence!inner (id, userId, sourceType, epistemicType, description, personId, occurredAt, createdAt, updatedAt),
+        CareerHypothesis!inner (userId)
       `)
       .eq("hypothesisId", hypothesisId)
-      .eq("userId", userId)
+      .eq("CareerHypothesis.userId", userId)
       .order("createdAt", { ascending: true });
 
     if (error || !data) return [];
@@ -732,7 +742,7 @@ export class SupabaseConversationRepository
       return {
         link: {
           id: r.id as string,
-          userId: r.userId as string,
+          userId,
           hypothesisId: r.hypothesisId as string,
           evidenceId: r.evidenceId as string,
           linkType: r.linkType as LinkType,

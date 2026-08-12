@@ -30,19 +30,21 @@ Scope:
 - [x] Local Postgres via Prisma; minimal schema — only the tables the loop actually needs
       (CareerContext, Person (optional, only if mentioned), Evidence, CareerHypothesis,
       CareerExperiment, Conversation, Message, Memory, PendingCandidate)
-      — schema applied to Supabase PostgreSQL, migration committed;
-      SupabaseConversationRepository implements the full repository contract;
-      34 Supabase contract tests + 3 persistence/restart tests pass against real PostgreSQL
+      — schema applied to PostgreSQL, migration committed and reproducible from Git;
+      PrismaConversationRepository implements the full repository contract with real
+      prisma.$transaction; 34 contract tests run against both in-memory and Supabase;
+      34 Prisma contract tests + 5 transaction rollback tests run when DATABASE_URL is set;
+      3 persistence/restart tests pass against real PostgreSQL
 
 ### M0 status
 
-**Structurally implemented and PostgreSQL-backed, not yet product-validated.** All six
-stages (A–F) are implemented, the loop closes correctly, persistence is atomic, the
-transaction boundary protects relationship-sensitive values from caller manipulation,
-data persists to real PostgreSQL, and 209 tests verify the plumbing including
-cross-restart persistence. However, the reasoning quality has not been evaluated against
-a real AIProvider. The Golden Career Scenarios evaluation is the remaining acceptance
-step. Do not begin M1 until it is complete.
+**Structurally implemented and Prisma/PostgreSQL-backed, not yet product-validated.** All six
+stages (A–F) are implemented, the loop closes correctly, persistence is atomic via
+prisma.$transaction, the transaction boundary protects relationship-sensitive values from
+caller manipulation, data persists to real PostgreSQL, and 209 tests verify the plumbing
+including cross-restart persistence. However, the reasoning quality has not been evaluated
+against a real AIProvider. The Golden Career Scenarios evaluation is the remaining
+acceptance step. Do not begin M1 until it is complete.
 
 Explicitly NOT in M0 (moved to later milestones):
 - Full Situation Analysis workflow → M2
