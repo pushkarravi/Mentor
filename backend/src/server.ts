@@ -6,6 +6,7 @@ import { CareerReasoningEngine } from "./ai/reasoning/engine.js";
 import { InMemoryConversationRepository } from "./modules/conversations/in-memory.js";
 import { conversationRoutes } from "./api/conversations.js";
 import { memoryRoutes } from "./api/memory.js";
+import { hypothesisRoutes } from "./api/hypotheses.js";
 
 /**
  * Fastify server entry point.
@@ -40,6 +41,7 @@ async function main() {
   // Register routes
   conversationRoutes(app, repo, engine, userId, { AI_PROVIDER: env.aiProvider });
   memoryRoutes(app, repo, engine, userId);
+  hypothesisRoutes(app, repo, engine, userId);
 
   // Health check
   app.get("/api/health", async () => ({

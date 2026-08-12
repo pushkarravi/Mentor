@@ -90,3 +90,63 @@ export interface RejectCandidateResponse {
   rejected: boolean;
   id: string;
 }
+
+// ── Evidence (Stage B confirmed) ──────────────────────────────────────
+
+export interface Evidence {
+  id: string;
+  sourceType: SourceType;
+  epistemicType: ClaimComponentType;
+  description: string;
+  createdAt: string;
+}
+
+// ── Career Hypotheses (Stage C) ───────────────────────────────────────
+
+export type ConfidenceCategory = "tentative" | "moderate" | "strong";
+
+export type HypothesisStatus =
+  | "active"
+  | "tested_supports"
+  | "tested_contradicts"
+  | "superseded"
+  | "confirmed";
+
+export type LinkType = "supports" | "contradicts";
+
+export interface Hypothesis {
+  id: string;
+  statement: string;
+  confidence: ConfidenceCategory;
+  status: HypothesisStatus;
+  rationale: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HypothesisEvidenceLinkItem {
+  id: string;
+  evidenceId: string;
+  linkType: LinkType;
+  evidence: {
+    id: string;
+    description: string;
+    sourceType: string;
+    epistemicType: string;
+  };
+}
+
+export interface HypothesisDetail extends Hypothesis {
+  links: HypothesisEvidenceLinkItem[];
+}
+
+export interface HypothesisAssessment {
+  hypothesisId: string;
+  confidence: ConfidenceCategory;
+  evidence: {
+    supporting: number;
+    contradicting: number;
+    untestedAssumptions: number;
+  };
+  rationale: string;
+}

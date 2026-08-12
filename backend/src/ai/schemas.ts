@@ -76,3 +76,15 @@ export const memoryCandidateSchema = z.object({
 export const extractionResponseSchema = z.object({
   candidates: z.array(memoryCandidateSchema),
 });
+
+// ── Hypothesis evaluation (Stage C) ──────────────────────────────────
+
+export const hypothesisStatusSchema = z.enum([
+  "active",
+  "tested_supports",
+  "tested_contradicts",
+  "superseded",
+  "confirmed",
+]);
+
+export const linkTypeSchema = z.enum(["supports", "contradicts"]);

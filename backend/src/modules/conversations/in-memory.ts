@@ -9,6 +9,11 @@ import type {
   PendingCandidate,
   SourceType,
   EpistemicType,
+  HypothesisData,
+  HypothesisEvidenceLink,
+  ConfidenceCategory,
+  HypothesisStatus,
+  LinkType,
 } from "../../ai/types.js";
 import { validateEpistemicPair } from "../../ai/reasoning/engine.js";
 import type { ConversationRepository } from "./repository.js";
@@ -315,6 +320,16 @@ export class InMemoryConversationRepository
     return this.evidence.filter((e) => e.userId === userId);
   }
 
+  async getEvidence(
+    userId: string,
+    evidenceId: string,
+  ): Promise<EvidenceData | null> {
+    const ev = this.evidence.find(
+      (e) => e.id === evidenceId && e.userId === userId,
+    );
+    return ev ?? null;
+  }
+
   // ── Confirmed memory records ─────────────────────────────────────
 
   private memoryRecords: MemoryRecordData[] = [];
@@ -351,5 +366,117 @@ export class InMemoryConversationRepository
 
   async listMemoryRecords(userId: string): Promise<MemoryRecordData[]> {
     return this.memoryRecords.filter((m) => m.userId === userId);
+  }
+
+  // ── Career Hypotheses (Stage C) ───────────────────────────────────
+
+  private hypotheses: HypothesisData[] = [];
+  private hypothesisLinks: HypothesisEvidenceLink[] = [];
+
+  async createHypothesis(
+    userId: string,
+    data: {
+      statement: string;
+      rationale: string;
+    },
+  ): Promise<HypothesisData> {
+    const now = new Date().toISOString();
+    const hyp: HypothesisData = {
+      id: this.nextId("hyp"),
+      userId,
+      statement: data.statement,
+      // Initial confidence is always tentative — it changes only
+      // through evaluation with linked evidence.
+      confidence: "tentative",
+      status: "active",
+      rationale: data.rationale,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.hypotheses.push(hyp);
+    return hyp;
+  }
+
+  async getHypothesis(
+    userId: string,
+    hypothesisId: string,
+  ): Promise<HypothesisData | null> {
+    const hyp = this.hypotheses.find(
+      (h) => h.id === hypothesisId && h.userId === userId,
+    );
+    return hyp ?? null;
+  }
+
+  async listHypotheses(userId: string): Promise<HypothesisData[]> {
+    return this.hypotheses.filter((h) => h.userId === userId);
+  }
+
+  async updateHypothesis(
+    userId: string,
+    hypothesisId: string,
+    data: {
+      confidence?: ConfidenceCategory;
+      status?: HypothesisStatus;
+      rationale?: string;
+    },
+  ): Promise<HypothesisData | null> {
+    const hyp = this.hypotheses.find(
+      (h) => h.id === hypothesisId && h.userId === userId,
+    );
+    if (!hyp) return null;
+    if (data.confidence !== undefined) hyp.confidence = data.confidence;
+    if (data.status !== undefined) hyp.status = data.status;
+    if (data.rationale !== undefined) hyp.rationale = data.rationale;
+    hyp.updatedAt = new Date().toISOString();
+    return hyp;
+  }
+
+  async addHypothesisEvidenceLink(
+    userId: string,
+    data: {
+      hypothesisId: string;
+      evidenceId: string;
+      linkType: LinkType;
+    },
+  ): Promise<HypothesisEvidenceLink> {
+    // Prevent duplicate links for the same evidence+hypothesis pair.
+    const existing = this.hypothesisLinks.find(
+      (l) =>
+        l.userId === userId &&
+        l.hypothesisId === data.hypothesisId &&
+        l.evidenceId === data.evidenceId,
+    );
+    if (existing) {
+      // Update the link type if it changed.
+      existing.linkType = data.linkType;
+      return existing;
+    }
+
+    const link: HypothesisEvidenceLink = {
+      id: this.nextId("link"),
+      userId,
+      hypothesisId: data.hypothesisId,
+      evidenceId: data.evidenceId,
+      linkType: data.linkType,
+      createdAt: new Date().toISOString(),
+    };
+    this.hypothesisLinks.push(link);
+    return link;
+  }
+
+  async getHypothesisEvidenceLinks(
+    userId: string,
+    hypothesisId: string,
+  ): Promise<Array<{
+    link: HypothesisEvidenceLink;
+    evidence: EvidenceData;
+  }>> {
+    const links = this.hypothesisLinks.filter(
+      (l) => l.userId === userId && l.hypothesisId === hypothesisId,
+    );
+    return links.map((link) => {
+      const evidence = this.evidence.find((e) => e.id === link.evidenceId)!;
+      return { link, evidence };
+    });
   }
 }

@@ -6,6 +6,11 @@ import type {
   PendingCandidate,
   ConfirmCandidateResponse,
   RejectCandidateResponse,
+  Evidence,
+  Hypothesis,
+  HypothesisDetail,
+  HypothesisAssessment,
+  LinkType,
 } from "./types";
 
 const API_BASE =
@@ -99,4 +104,39 @@ export const api = {
     request<{ status: string; provider: string; database: string }>(
       "/api/health",
     ),
+
+  // ── Evidence ────────────────────────────────────────────────────────
+
+  listEvidence: () => request<Evidence[]>("/api/evidence"),
+
+  // ── Hypotheses (Stage C) ────────────────────────────────────────────
+
+  listHypotheses: () => request<Hypothesis[]>("/api/hypotheses"),
+
+  getHypothesis: (id: string) =>
+    request<HypothesisDetail>(`/api/hypotheses/${id}`),
+
+  createHypothesis: (statement: string, rationale: string) =>
+    request<Hypothesis>("/api/hypotheses", {
+      method: "POST",
+      body: JSON.stringify({ statement, rationale }),
+    }),
+
+  linkEvidence: (
+    hypothesisId: string,
+    evidenceId: string,
+    linkType: LinkType,
+  ) =>
+    request<{ id: string; hypothesisId: string; evidenceId: string; linkType: LinkType }>(
+      `/api/hypotheses/${hypothesisId}/evidence`,
+      {
+        method: "POST",
+        body: JSON.stringify({ evidenceId, linkType }),
+      },
+    ),
+
+  evaluateHypothesis: (id: string) =>
+    request<HypothesisAssessment>(`/api/hypotheses/${id}/evaluate`, {
+      method: "POST",
+    }),
 };

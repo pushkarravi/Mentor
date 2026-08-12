@@ -6,6 +6,10 @@ import type {
   ConfidenceCategory,
   EpistemicType,
   EvidenceSummary,
+  EvidenceData,
+  HypothesisAssessment,
+  HypothesisData,
+  HypothesisEvidenceLink,
   MessageData,
   ReasoningLens,
   SourceType,
@@ -363,5 +367,151 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
         reasonToSave: "[Mock] Testing ai_inference candidate flow.",
       },
     ];
+  }
+
+  /**
+   * evaluateHypothesis — assesses a hypothesis by retrieving the actual
+   * linked evidence (not caller-supplied counts), computing qualitative
+   * confidence, and producing a rationale that references the evidence
+   * content.
+   *
+   * Key constraints:
+   * - Confidence is qualitative (tentative/moderate/strong), never numeric.
+   * - Strong confidence does NOT automatically set status to "confirmed".
+   * - Observed outcomes carry more weight than user interpretations.
+   * - Contradicting evidence weakens the assessment.
+   * - No evidence → tentative.
+   */
+  async evaluateHypothesis(
+    hypothesis: HypothesisData,
+    links: Array<{ link: HypothesisEvidenceLink; evidence: EvidenceData }>,
+  ): Promise<HypothesisAssessment> {
+    const supporting = links.filter((l) => l.link.linkType === "supports");
+    const contradicting = links.filter(
+      (l) => l.link.linkType === "contradicts",
+    );
+
+    const hasObservedOutcomeSupport = supporting.some(
+      (l) => l.evidence.sourceType === "observed_outcome",
+    );
+
+    const confidence = computeConfidence({
+      supporting: supporting.length,
+      contradicting: contradicting.length,
+      untestedAssumptions: 0,
+      hasObservedOutcomeSupport,
+    });
+
+    const rationale = this.buildEvaluationRationale(
+      hypothesis,
+      supporting,
+      contradicting,
+      confidence,
+      hasObservedOutcomeSupport,
+    );
+
+    return {
+      hypothesisId: hypothesis.id,
+      confidence,
+      evidence: {
+        supporting: supporting.length,
+        contradicting: contradicting.length,
+        untestedAssumptions: 0,
+      },
+      rationale,
+    };
+  }
+
+  /**
+   * Builds a human-readable rationale for a hypothesis assessment.
+   * References the actual evidence content and source types, explains
+   * why the confidence category was assigned, and notes the weight of
+   * observed outcomes vs. interpretations.
+   */
+  private buildEvaluationRationale(
+    hypothesis: HypothesisData,
+    supporting: Array<{ link: HypothesisEvidenceLink; evidence: EvidenceData }>,
+    contradicting: Array<{ link: HypothesisEvidenceLink; evidence: EvidenceData }>,
+    confidence: ConfidenceCategory,
+    hasObservedOutcomeSupport: boolean,
+  ): string {
+    const parts: string[] = [];
+
+    parts.push(`Hypothesis: "${hypothesis.statement}"`);
+
+    if (supporting.length === 0 && contradicting.length === 0) {
+      parts.push(
+        "No evidence has been linked to this hypothesis yet. " +
+          "Confidence is tentative — the hypothesis is untested.",
+      );
+      return parts.join(" ");
+    }
+
+    if (supporting.length > 0) {
+      const supportItems = supporting.map(
+        (l) =>
+          `"${l.evidence.description}" (${l.evidence.sourceType}/${l.evidence.epistemicType})`,
+      );
+      parts.push(
+        `Supporting evidence (${supporting.length}): ${supportItems.join("; ")}.`,
+      );
+    }
+
+    if (contradicting.length > 0) {
+      const contraItems = contradicting.map(
+        (l) =>
+          `"${l.evidence.description}" (${l.evidence.sourceType}/${l.evidence.epistemicType})`,
+      );
+      parts.push(
+        `Contradicting evidence (${contradicting.length}): ${contraItems.join("; ")}.`,
+      );
+    }
+
+    switch (confidence) {
+      case "tentative":
+        if (
+          contradicting.length > 0 &&
+          supporting.length <= contradicting.length
+        ) {
+          parts.push(
+            "Confidence is tentative because contradicting evidence meets or exceeds supporting evidence.",
+          );
+        } else if (supporting.length < 2) {
+          parts.push(
+            "Confidence is tentative — fewer than two supporting items have been linked.",
+          );
+        } else {
+          parts.push("Confidence is tentative.");
+        }
+        break;
+      case "moderate":
+        parts.push(
+          "Confidence is moderate — at least two supporting items and supporting exceeds contradicting, " +
+            "but the evidence base is not yet strong enough for high confidence.",
+        );
+        break;
+      case "strong":
+        parts.push(
+          "Confidence is strong — at least three supporting items including an observed outcome, " +
+            "and supporting evidence significantly outweighs contradicting evidence. " +
+            "Strong confidence does not mean confirmed — the hypothesis remains testable.",
+        );
+        break;
+    }
+
+    if (hasObservedOutcomeSupport && contradicting.length > 0) {
+      const contraAreInterpretations = contradicting.every(
+        (l) =>
+          l.evidence.sourceType !== "observed_outcome" &&
+          l.evidence.epistemicType === "interpretation",
+      );
+      if (contraAreInterpretations) {
+        parts.push(
+          "Observed outcomes in the supporting evidence carry more weight than the interpretive contradicting evidence.",
+        );
+      }
+    }
+
+    return parts.join(" ");
   }
 }

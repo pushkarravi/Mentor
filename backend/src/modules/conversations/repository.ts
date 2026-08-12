@@ -9,6 +9,11 @@ import type {
   PendingCandidate,
   SourceType,
   EpistemicType,
+  HypothesisData,
+  HypothesisEvidenceLink,
+  HypothesisStatus,
+  ConfidenceCategory,
+  LinkType,
 } from "../../ai/types.js";
 
 /**
@@ -110,6 +115,7 @@ export interface ConversationRepository {
     },
   ): Promise<EvidenceData>;
   listEvidence(userId: string): Promise<EvidenceData[]>;
+  getEvidence(userId: string, evidenceId: string): Promise<EvidenceData | null>;
 
   // Confirmed memory records
   addMemoryRecord(
@@ -125,4 +131,66 @@ export interface ConversationRepository {
     },
   ): Promise<MemoryRecordData>;
   listMemoryRecords(userId: string): Promise<MemoryRecordData[]>;
+
+  // ── Career Hypotheses (Stage C) ───────────────────────────────────
+
+  /**
+   * Creates a hypothesis. The caller provides the statement and
+   * rationale — this is an explicit user-approved action, not a
+   * silent side effect of AI suggestion.
+   *
+   * Initial confidence is always "tentative" and status is "active".
+   * These change only through evaluation and explicit user action.
+   */
+  createHypothesis(
+    userId: string,
+    data: {
+      statement: string;
+      rationale: string;
+    },
+  ): Promise<HypothesisData>;
+
+  getHypothesis(
+    userId: string,
+    hypothesisId: string,
+  ): Promise<HypothesisData | null>;
+
+  listHypotheses(userId: string): Promise<HypothesisData[]>;
+
+  updateHypothesis(
+    userId: string,
+    hypothesisId: string,
+    data: {
+      confidence?: ConfidenceCategory;
+      status?: HypothesisStatus;
+      rationale?: string;
+    },
+  ): Promise<HypothesisData | null>;
+
+  /**
+   * Creates an explicit link between an Evidence record and a
+   * Hypothesis. One Evidence may support one hypothesis and
+n   * contradict another — links are per-pair.
+   */
+  addHypothesisEvidenceLink(
+    userId: string,
+    data: {
+      hypothesisId: string;
+      evidenceId: string;
+      linkType: LinkType;
+    },
+  ): Promise<HypothesisEvidenceLink>;
+
+  /**
+   * Retrieves all evidence links for a hypothesis, with the full
+   * Evidence record for each link. Used by evaluateHypothesis() to
+   * reason over actual evidence, not stored counts.
+   */
+  getHypothesisEvidenceLinks(
+    userId: string,
+    hypothesisId: string,
+  ): Promise<Array<{
+    link: HypothesisEvidenceLink;
+    evidence: EvidenceData;
+  }>>;
 }

@@ -33,6 +33,27 @@ export type ClaimComponentType =
 
 export type ConfidenceCategory = "tentative" | "moderate" | "strong";
 
+/**
+ * Hypothesis status — distinct from confidence. A hypothesis can
+ * remain active/testable even when confidence is strong. "confirmed"
+ * is reserved for hypotheses that have been supported by observed
+ * outcomes AND explicitly closed by the user, not auto-set by high
+ * confidence.
+ */
+export type HypothesisStatus =
+  | "active"
+  | "tested_supports"
+  | "tested_contradicts"
+  | "superseded"
+  | "confirmed";
+
+/**
+ * The direction of an explicit Evidence→Hypothesis link.
+ * One Evidence record may support one hypothesis and contradict
+ * another — links are per-pair, not per-evidence.
+ */
+export type LinkType = "supports" | "contradicts";
+
 export type ExperimentStatus = "proposed" | "active" | "completed" | "abandoned";
 
 export type ReasoningLens = "coach" | "challenger" | "decision_advisor";
@@ -79,11 +100,57 @@ export interface EvidenceSummary {
   untestedAssumptions: number;
 }
 
+/**
+ * HypothesisAssessment — the output of evaluateHypothesis().
+ * Confidence is qualitative (tentative/moderate/strong), never
+ * numeric. The rationale is based on the actual linked evidence,
+ * not just counts.
+ */
 export interface HypothesisAssessment {
   hypothesisId: string;
   confidence: ConfidenceCategory;
   evidence: EvidenceSummary;
   rationale: string;
+}
+
+// ── Career Hypothesis (Stage C) ──────────────────────────────────────────
+
+/**
+ * HypothesisData — a career hypothesis created from confirmed evidence
+ * or an explicit user-approved statement. AI-generated hypotheses
+ * remain hypotheses, never facts (Invariant #1).
+ *
+ * status and confidence are separate dimensions: a hypothesis can
+ * have strong confidence but remain active/testable.
+ */
+export interface HypothesisData {
+  id: string;
+  userId: string;
+  statement: string;
+  /**
+   * Qualitative confidence — tentative/moderate/strong. Never a
+   * number or percentage (Invariant #13).
+   */
+  confidence: ConfidenceCategory;
+  status: HypothesisStatus;
+  rationale: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * HypothesisEvidenceLink — an explicit, user-approved link between
+ * an Evidence record and a Hypothesis. One Evidence may support one
+ * hypothesis and contradict another. Links are never inferred solely
+ * from text similarity.
+ */
+export interface HypothesisEvidenceLink {
+  id: string;
+  userId: string;
+  hypothesisId: string;
+  evidenceId: string;
+  linkType: LinkType;
+  createdAt: string;
 }
 
 // ── Experiment proposal (output of recommendExperiment) ────────────────

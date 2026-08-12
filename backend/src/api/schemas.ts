@@ -19,12 +19,17 @@ export {
   claimAnalysisResponseSchema,
   memoryCandidateSchema,
   extractionResponseSchema,
+  hypothesisStatusSchema,
+  linkTypeSchema,
 } from "../ai/schemas.js";
 
 import {
   epistemicTypeSchema,
   reasoningLensSchema,
   claimAnalysisResponseSchema,
+  confidenceCategorySchema,
+  hypothesisStatusSchema,
+  linkTypeSchema,
 } from "../ai/schemas.js";
 
 // ── Career context (API input) ──────────────────────────────────────
@@ -77,4 +82,49 @@ export const conversationResponseSchema = z.object({
   title: z.string().nullable(),
   createdAt: z.string(),
   messages: z.array(messageResponseSchema),
+});
+
+// ── Hypothesis (Stage C) ──────────────────────────────────────────────
+
+export const createHypothesisSchema = z.object({
+  statement: z.string().min(1),
+  rationale: z.string().min(1),
+});
+
+export const linkEvidenceSchema = z.object({
+  evidenceId: z.string().min(1),
+  linkType: linkTypeSchema,
+});
+
+export const hypothesisResponseSchema = z.object({
+  id: z.string(),
+  statement: z.string(),
+  confidence: confidenceCategorySchema,
+  status: hypothesisStatusSchema,
+  rationale: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const hypothesisDetailResponseSchema = z.object({
+  id: z.string(),
+  statement: z.string(),
+  confidence: confidenceCategorySchema,
+  status: hypothesisStatusSchema,
+  rationale: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  links: z.array(
+    z.object({
+      id: z.string(),
+      evidenceId: z.string(),
+      linkType: linkTypeSchema,
+      evidence: z.object({
+        id: z.string(),
+        description: z.string(),
+        sourceType: z.string(),
+        epistemicType: z.string(),
+      }),
+    }),
+  ),
 });
