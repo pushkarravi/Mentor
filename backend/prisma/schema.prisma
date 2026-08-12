@@ -30,6 +30,26 @@ enum ConfidenceCategory {
   strong
 }
 
+/// Hypothesis status — distinct from confidence. A hypothesis can
+/// remain active/testable even when confidence is strong. "confirmed"
+/// is reserved for hypotheses explicitly closed by the user, never
+/// auto-set by high confidence.
+enum HypothesisStatus {
+  active
+  tested_supports
+  tested_contradicts
+  superseded
+  confirmed
+}
+
+/// The direction of an explicit Evidence→Hypothesis link.
+/// One Evidence record may support one hypothesis and contradict
+/// another — links are per-pair, not per-evidence.
+enum LinkType {
+  supports
+  contradicts
+}
+
 enum ExperimentStatus {
   proposed
   active
@@ -116,11 +136,22 @@ model Evidence {
 }
 
 model CareerHypothesis {
-  id          String             @id @default(cuid())
-  userId      String
-  statement   String
-  confidence  ConfidenceCategory @default(tentative)
-  status      String             @default("untested") // untested, active, disconfirmed, confirmed
+  id             String             @id @default(cuid())
+  userId         String
+  statement      String
+  confidence     ConfidenceCategory @default(tentative)
+  status         HypothesisStatus   @default(active)
+
+  /// The user's original reason for creating this hypothesis.
+  /// Immutable unless explicitly edited by the user — never
+  /// overwritten by evaluation.
+  creationRationale String
+
+  /// The engine's latest assessment rationale, based on linked
+  /// evidence. Updated by evaluateHypothesis(). Null until the
+  /// first evaluation runs.
+  lastAssessmentRationale String?
+
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
@@ -135,7 +166,7 @@ model HypothesisEvidence {
   id           String   @id @default(cuid())
   hypothesisId String
   evidenceId   String
-  supports     Boolean
+  linkType     LinkType
   createdAt    DateTime @default(now())
 
   hypothesis CareerHypothesis @relation(fields: [hypothesisId], references: [id], onDelete: Cascade)

@@ -377,7 +377,7 @@ export class InMemoryConversationRepository
     userId: string,
     data: {
       statement: string;
-      rationale: string;
+      creationRationale: string;
     },
   ): Promise<HypothesisData> {
     const now = new Date().toISOString();
@@ -385,11 +385,10 @@ export class InMemoryConversationRepository
       id: this.nextId("hyp"),
       userId,
       statement: data.statement,
-      // Initial confidence is always tentative — it changes only
-      // through evaluation with linked evidence.
       confidence: "tentative",
       status: "active",
-      rationale: data.rationale,
+      creationRationale: data.creationRationale,
+      lastAssessmentRationale: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -417,7 +416,7 @@ export class InMemoryConversationRepository
     data: {
       confidence?: ConfidenceCategory;
       status?: HypothesisStatus;
-      rationale?: string;
+      lastAssessmentRationale?: string;
     },
   ): Promise<HypothesisData | null> {
     const hyp = this.hypotheses.find(
@@ -426,7 +425,8 @@ export class InMemoryConversationRepository
     if (!hyp) return null;
     if (data.confidence !== undefined) hyp.confidence = data.confidence;
     if (data.status !== undefined) hyp.status = data.status;
-    if (data.rationale !== undefined) hyp.rationale = data.rationale;
+    if (data.lastAssessmentRationale !== undefined)
+      hyp.lastAssessmentRationale = data.lastAssessmentRationale;
     hyp.updatedAt = new Date().toISOString();
     return hyp;
   }

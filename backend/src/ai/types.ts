@@ -97,7 +97,13 @@ export interface ClaimAnalysis {
 export interface EvidenceSummary {
   supporting: number;
   contradicting: number;
-  untestedAssumptions: number;
+  /**
+   * Explicit list of untested assumption strings — not a hard-coded
+   * zero. The displayed count is derived from this array's length.
+   * An empty list means the engine found no plausible untested
+   * assumptions, not that assumptions are impossible.
+   */
+  untestedAssumptions: string[];
 }
 
 /**
@@ -122,6 +128,13 @@ export interface HypothesisAssessment {
  *
  * status and confidence are separate dimensions: a hypothesis can
  * have strong confidence but remain active/testable.
+ *
+ * creationRationale is the user's original reason for creating the
+ * hypothesis — immutable unless explicitly edited by the user.
+ * lastAssessmentRationale is the engine's latest evaluation output,
+ * based on linked evidence. These are stored separately so the
+ * longitudinal model preserves "why I originally believed this"
+ * distinct from "what the evidence currently says."
  */
 export interface HypothesisData {
   id: string;
@@ -133,7 +146,17 @@ export interface HypothesisData {
    */
   confidence: ConfidenceCategory;
   status: HypothesisStatus;
-  rationale: string;
+  /**
+   * The user's original reason for creating this hypothesis.
+   * Immutable unless explicitly edited by the user — never
+   * overwritten by evaluation.
+   */
+  creationRationale: string;
+  /**
+   * The engine's latest assessment rationale, based on linked
+   * evidence. Null until the first evaluation runs.
+   */
+  lastAssessmentRationale: string | null;
   createdAt: string;
   updatedAt: string;
 }

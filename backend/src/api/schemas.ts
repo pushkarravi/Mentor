@@ -88,7 +88,7 @@ export const conversationResponseSchema = z.object({
 
 export const createHypothesisSchema = z.object({
   statement: z.string().min(1),
-  rationale: z.string().min(1),
+  creationRationale: z.string().min(1),
 });
 
 export const linkEvidenceSchema = z.object({
@@ -101,7 +101,8 @@ export const hypothesisResponseSchema = z.object({
   statement: z.string(),
   confidence: confidenceCategorySchema,
   status: hypothesisStatusSchema,
-  rationale: z.string(),
+  creationRationale: z.string(),
+  lastAssessmentRationale: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -111,7 +112,8 @@ export const hypothesisDetailResponseSchema = z.object({
   statement: z.string(),
   confidence: confidenceCategorySchema,
   status: hypothesisStatusSchema,
-  rationale: z.string(),
+  creationRationale: z.string(),
+  lastAssessmentRationale: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
   links: z.array(

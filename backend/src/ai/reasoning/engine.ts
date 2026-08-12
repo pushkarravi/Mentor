@@ -70,6 +70,15 @@ export function validateEpistemicPair(
  * - moderate: at least 2 supporting, supporting > contradicting
  * - strong: at least 3 supporting, supporting > 2x contradicting, and
  *   at least one observed_outcome among the supporting evidence
+ *
+ * Evidence weighting caveat: observed_outcome currently influences the
+ * threshold for "strong" (it is a prerequisite). This does NOT mean a
+ * single observed outcome automatically outweighs arbitrary contradicting
+ * evidence — the count-based inequality (supporting > 2x contradicting)
+ * must also hold. The engine does not yet have a mature source-quality
+ * weighting model; the rationale builder notes when observed outcomes
+ * are present alongside interpretive contradictions, but this is a
+ * narrative observation, not a computed weight.
  */
 export function computeConfidence(
   evidence: EvidenceSummary & {
@@ -372,15 +381,21 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
   /**
    * evaluateHypothesis — assesses a hypothesis by retrieving the actual
    * linked evidence (not caller-supplied counts), computing qualitative
-   * confidence, and producing a rationale that references the evidence
-   * content.
+   * confidence, identifying untested assumptions, and producing a
+   * rationale that references the evidence content.
    *
    * Key constraints:
    * - Confidence is qualitative (tentative/moderate/strong), never numeric.
    * - Strong confidence does NOT automatically set status to "confirmed".
-   * - Observed outcomes carry more weight than user interpretations.
+   * - Observed outcomes influence the threshold for "strong" confidence
+   *   but do not automatically outweigh arbitrary contradicting evidence.
    * - Contradicting evidence weakens the assessment.
    * - No evidence → tentative.
+   * - Untested assumptions are returned as an explicit string list, not
+   *   a hard-coded zero. An empty list means the engine found no
+   *   plausible untested assumptions given the current evidence.
+   * - The assessment rationale is stored separately from the user's
+   *   original creationRationale — evaluation never overwrites the latter.
    */
   async evaluateHypothesis(
     hypothesis: HypothesisData,
@@ -398,9 +413,15 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
     const confidence = computeConfidence({
       supporting: supporting.length,
       contradicting: contradicting.length,
-      untestedAssumptions: 0,
+      untestedAssumptions: [],
       hasObservedOutcomeSupport,
     });
+
+    const untestedAssumptions = this.identifyUntestedAssumptions(
+      hypothesis,
+      supporting,
+      contradicting,
+    );
 
     const rationale = this.buildEvaluationRationale(
       hypothesis,
@@ -408,6 +429,7 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       contradicting,
       confidence,
       hasObservedOutcomeSupport,
+      untestedAssumptions,
     );
 
     return {
@@ -416,10 +438,76 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       evidence: {
         supporting: supporting.length,
         contradicting: contradicting.length,
-        untestedAssumptions: 0,
+        untestedAssumptions,
       },
       rationale,
     };
+  }
+
+  /**
+   * Identifies plausible untested assumptions remaining for a hypothesis
+   * given its current linked evidence. With a real AIProvider this would
+   * use the model to reason about what assumptions the evidence base has
+   * not yet addressed. With a synthetic provider (the current default),
+   * it uses a deterministic fallback that checks for common gaps.
+   *
+   * Returns an explicit list — never a hard-coded zero. An empty list
+   * means no plausible untested assumptions were identified given the
+   * current evidence, not that assumptions are impossible.
+   */
+  private identifyUntestedAssumptions(
+    _hypothesis: HypothesisData,
+    supporting: Array<{ link: HypothesisEvidenceLink; evidence: EvidenceData }>,
+    contradicting: Array<{ link: HypothesisEvidenceLink; evidence: EvidenceData }>,
+  ): string[] {
+    const assumptions: string[] = [];
+
+    // If there is no supporting evidence, the hypothesis itself is
+    // an untested assumption.
+    if (supporting.length === 0 && contradicting.length === 0) {
+      assumptions.push(
+        "The hypothesis has not yet been tested against any evidence.",
+      );
+      return assumptions;
+    }
+
+    // If all supporting evidence is user_report or ai_inference (no
+    // observed outcomes), the assumption that the pattern is real
+    // (not just perception) remains untested.
+    const hasObservedOutcome = supporting.some(
+      (l) => l.evidence.sourceType === "observed_outcome",
+    );
+    if (supporting.length > 0 && !hasObservedOutcome) {
+      assumptions.push(
+        "All supporting evidence is self-reported or inferred — " +
+          "no observed outcomes have been recorded to independently " +
+          "confirm the pattern.",
+      );
+    }
+
+    // If there is contradicting evidence but no supporting evidence,
+    // the hypothesis may be unfounded.
+    if (supporting.length === 0 && contradicting.length > 0) {
+      assumptions.push(
+        "All linked evidence contradicts the hypothesis — " +
+          "the hypothesis may be unfounded.",
+      );
+    }
+
+    // If there is both supporting and contradicting evidence with
+    // similar counts, the resolution of the conflict is untested.
+    if (
+      supporting.length > 0 &&
+      contradicting.length > 0 &&
+      Math.abs(supporting.length - contradicting.length) <= 1
+    ) {
+      assumptions.push(
+        "Supporting and contradicting evidence are nearly balanced — " +
+          "the conflict has not been resolved by a decisive observation.",
+      );
+    }
+
+    return assumptions;
   }
 
   /**
@@ -427,6 +515,9 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
    * References the actual evidence content and source types, explains
    * why the confidence category was assigned, and notes the weight of
    * observed outcomes vs. interpretations.
+   *
+   * This rationale is stored as lastAssessmentRationale — it does NOT
+   * overwrite the user's creationRationale.
    */
   private buildEvaluationRationale(
     hypothesis: HypothesisData,
@@ -434,6 +525,7 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
     contradicting: Array<{ link: HypothesisEvidenceLink; evidence: EvidenceData }>,
     confidence: ConfidenceCategory,
     hasObservedOutcomeSupport: boolean,
+    untestedAssumptions: string[],
   ): string {
     const parts: string[] = [];
 
@@ -444,6 +536,9 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
         "No evidence has been linked to this hypothesis yet. " +
           "Confidence is tentative — the hypothesis is untested.",
       );
+      if (untestedAssumptions.length > 0) {
+        parts.push(`Untested assumptions: ${untestedAssumptions.join(" ")}`);
+      }
       return parts.join(" ");
     }
 
@@ -499,6 +594,9 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
         break;
     }
 
+    // Note observed outcome presence — this is a narrative observation,
+    // not a computed weight. The engine does not claim that one observed
+    // outcome automatically outweighs arbitrary contradicting evidence.
     if (hasObservedOutcomeSupport && contradicting.length > 0) {
       const contraAreInterpretations = contradicting.every(
         (l) =>
@@ -507,9 +605,15 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       );
       if (contraAreInterpretations) {
         parts.push(
-          "Observed outcomes in the supporting evidence carry more weight than the interpretive contradicting evidence.",
+          "Note: supporting evidence includes observed outcomes while contradicting " +
+            "evidence is interpretive. The current heuristic treats this favorably " +
+            "but does not have a mature source-quality weighting model.",
         );
       }
+    }
+
+    if (untestedAssumptions.length > 0) {
+      parts.push(`Untested assumptions: ${untestedAssumptions.join(" ")}`);
     }
 
     return parts.join(" ");

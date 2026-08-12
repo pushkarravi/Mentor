@@ -146,7 +146,7 @@ export interface ConversationRepository {
     userId: string,
     data: {
       statement: string;
-      rationale: string;
+      creationRationale: string;
     },
   ): Promise<HypothesisData>;
 
@@ -163,7 +163,7 @@ export interface ConversationRepository {
     data: {
       confidence?: ConfidenceCategory;
       status?: HypothesisStatus;
-      rationale?: string;
+      lastAssessmentRationale?: string;
     },
   ): Promise<HypothesisData | null>;
 

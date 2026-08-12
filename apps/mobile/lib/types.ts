@@ -119,7 +119,8 @@ export interface Hypothesis {
   statement: string;
   confidence: ConfidenceCategory;
   status: HypothesisStatus;
-  rationale: string;
+  creationRationale: string;
+  lastAssessmentRationale: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -146,7 +147,7 @@ export interface HypothesisAssessment {
   evidence: {
     supporting: number;
     contradicting: number;
-    untestedAssumptions: number;
+    untestedAssumptions: string[];
   };
   rationale: string;
 }

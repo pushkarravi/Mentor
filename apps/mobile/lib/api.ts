@@ -116,10 +116,10 @@ export const api = {
   getHypothesis: (id: string) =>
     request<HypothesisDetail>(`/api/hypotheses/${id}`),
 
-  createHypothesis: (statement: string, rationale: string) =>
+  createHypothesis: (statement: string, creationRationale: string) =>
     request<Hypothesis>("/api/hypotheses", {
       method: "POST",
-      body: JSON.stringify({ statement, rationale }),
+      body: JSON.stringify({ statement, creationRationale }),
     }),
 
   linkEvidence: (

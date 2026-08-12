@@ -111,11 +111,13 @@ export function hypothesisRoutes(
 
     const assessment = await engine.evaluateHypothesis(hyp, links);
 
-    // Update the hypothesis's stored confidence and rationale.
+    // Update confidence and assessment rationale only.
+    // creationRationale is NOT touched — the user's original reason
+    // for creating the hypothesis is preserved.
     // Status is NOT changed — strong confidence does not auto-confirm.
     await repo.updateHypothesis(userId, id, {
       confidence: assessment.confidence,
-      rationale: assessment.rationale,
+      lastAssessmentRationale: assessment.rationale,
     });
 
     return reply.send(assessment);

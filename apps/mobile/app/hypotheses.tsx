@@ -194,11 +194,15 @@ export default function HypothesesScreen() {
                     {STATUS_LABELS[hyp.status] ?? hyp.status}
                   </Text>
                 </View>
-                {hyp.rationale ? (
+                {hyp.lastAssessmentRationale ? (
                   <Text style={styles.hypRationale} numberOfLines={3}>
-                    {hyp.rationale}
+                    {hyp.lastAssessmentRationale}
                   </Text>
-                ) : null}
+                ) : (
+                  <Text style={styles.hypRationale} numberOfLines={2}>
+                    {hyp.creationRationale}
+                  </Text>
+                )}
               </Pressable>
             ))}
           </View>
@@ -240,6 +244,11 @@ export default function HypothesesScreen() {
 
             <View style={styles.field}>
               <Text style={styles.label}>Why this hypothesis</Text>
+              <Text style={styles.hint}>
+                Your original reason for creating this hypothesis. This stays
+                separate from the engine's assessment and won't be overwritten
+                when you evaluate.
+              </Text>
               <TextInput
                 style={[styles.input, styles.multiline]}
                 value={newRationale}
@@ -313,10 +322,21 @@ export default function HypothesesScreen() {
                 </Text>
               </View>
 
-              {detail.rationale ? (
-                <View style={styles.rationaleBox}>
-                  <Text style={styles.rationaleLabel}>Assessment</Text>
-                  <Text style={styles.rationaleText}>{detail.rationale}</Text>
+              <View style={styles.rationaleBox}>
+                <Text style={styles.rationaleLabel}>Why I Created This</Text>
+                <Text style={styles.rationaleText}>
+                  {detail.creationRationale}
+                </Text>
+              </View>
+
+              {detail.lastAssessmentRationale ? (
+                <View style={[styles.rationaleBox, styles.assessmentBox]}>
+                  <Text style={styles.rationaleLabel}>
+                    Current Assessment
+                  </Text>
+                  <Text style={styles.rationaleText}>
+                    {detail.lastAssessmentRationale}
+                  </Text>
                 </View>
               ) : null}
 
@@ -641,6 +661,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderLeftWidth: 3,
     borderLeftColor: "#2c3e50",
+  },
+  assessmentBox: {
+    borderLeftColor: "#059669",
   },
   rationaleLabel: {
     fontSize: 12,

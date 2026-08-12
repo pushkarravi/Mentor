@@ -51,11 +51,11 @@ async function createEvidence(
 
 async function createHypothesis(
   repo: InMemoryConversationRepository,
-  overrides: Partial<{ statement: string; rationale: string }> = {},
+  overrides: Partial<{ statement: string; creationRationale: string }> = {},
 ): Promise<HypothesisData> {
   const defaults = {
     statement: "My manager is excluding me from strategic decisions",
-    rationale: "Pattern of missed invitations to strategy meetings",
+    creationRationale: "Pattern of missed invitations to strategy meetings",
   };
   return repo.createHypothesis(USER_ID, { ...defaults, ...overrides });
 }
@@ -93,6 +93,16 @@ describe("Stage C: Hypothesis creation", () => {
     expect(hyp.updatedAt).toBeDefined();
   });
 
+  it("stores creationRationale separately from lastAssessmentRationale", async () => {
+    const hyp = await createHypothesis(repo, {
+      statement: "Test hypothesis",
+      creationRationale: "My original reason for believing this",
+    });
+
+    expect(hyp.creationRationale).toBe("My original reason for believing this");
+    expect(hyp.lastAssessmentRationale).toBeNull();
+  });
+
   it("creating a hypothesis does not mutate existing Evidence records", async () => {
     const evidence = await createEvidence(repo, {
       description: "I was not invited to the Q3 strategy meeting",
@@ -106,7 +116,7 @@ describe("Stage C: Hypothesis creation", () => {
 
     await createHypothesis(repo, {
       statement: "My manager is excluding me",
-      rationale: "Based on missed meeting invitations",
+      creationRationale: "Based on missed meeting invitations",
     });
 
     const retrieved = await repo.getEvidence(USER_ID, evidence.id);
@@ -297,7 +307,7 @@ describe("Stage C: evaluateHypothesis()", () => {
     expect(assessment.rationale).toContain("contradicting");
   });
 
-  it("observed outcomes carry more weight than user interpretations", async () => {
+  it("observed outcomes influence the threshold for strong confidence", async () => {
     const hyp = await createHypothesis(repo);
 
     // 5 supporting observed outcomes vs 2 contradicting user interpretations.
@@ -324,8 +334,10 @@ describe("Stage C: evaluateHypothesis()", () => {
     const assessment = await engine.evaluateHypothesis(hyp, links);
 
     expect(assessment.confidence).toBe("strong");
+    // The rationale should note observed outcomes are present, but
+    // should NOT claim they automatically outweigh the contradicting
+    // evidence — it should note the lack of a mature weighting model.
     expect(assessment.rationale).toContain("observed outcome");
-    expect(assessment.rationale).toContain("more weight");
   });
 
   it("strong confidence does not automatically set status to confirmed", async () => {
@@ -345,6 +357,8 @@ describe("Stage C: evaluateHypothesis()", () => {
 
     expect(assessment.confidence).toBe("strong");
 
+    // The hypothesis status must remain "active" — strong confidence
+    // does NOT auto-confirm.
     const retrieved = await repo.getHypothesis(USER_ID, hyp.id);
     expect(retrieved!.status).toBe("active");
 
@@ -376,6 +390,153 @@ describe("Stage C: evaluateHypothesis()", () => {
     expect(assessment.rationale).toContain("Invited to Q2 strategy meeting");
     expect(assessment.rationale).toContain("I am being excluded");
   });
+
+  // ── Correction: creationRationale preservation ────────────────────
+
+  it("evaluation does not overwrite creationRationale", async () => {
+    const originalReason = "I noticed I wasn't invited to three strategy meetings in a row";
+    const hyp = await createHypothesis(repo, {
+      statement: "My manager is excluding me from strategic decisions",
+      creationRationale: originalReason,
+    });
+
+    // Link enough evidence to trigger an evaluation with a non-trivial rationale.
+    for (let i = 0; i < 3; i++) {
+      const e = await createEvidence(repo, {
+        description: `Observed support ${i + 1}`,
+        sourceType: "observed_outcome",
+      });
+      await linkEvidence(repo, hyp.id, e.id, "supports");
+    }
+
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    // Simulate the route's update call — only lastAssessmentRationale is set.
+    await repo.updateHypothesis(USER_ID, hyp.id, {
+      confidence: assessment.confidence,
+      lastAssessmentRationale: assessment.rationale,
+    });
+
+    const retrieved = await repo.getHypothesis(USER_ID, hyp.id);
+
+    // The creation rationale must be unchanged.
+    expect(retrieved!.creationRationale).toBe(originalReason);
+    // The assessment rationale must be the evaluation output, not the
+    // creation rationale.
+    expect(retrieved!.lastAssessmentRationale).toBe(assessment.rationale);
+    expect(retrieved!.lastAssessmentRationale).not.toBe(originalReason);
+  });
+
+  it("assessment rationale is stored separately from creation rationale", async () => {
+    const hyp = await createHypothesis(repo, {
+      statement: "Test",
+      creationRationale: "Creation reason",
+    });
+
+    expect(hyp.creationRationale).toBe("Creation reason");
+    expect(hyp.lastAssessmentRationale).toBeNull();
+
+    // After evaluation + update, both fields coexist.
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    await repo.updateHypothesis(USER_ID, hyp.id, {
+      confidence: assessment.confidence,
+      lastAssessmentRationale: assessment.rationale,
+    });
+
+    const retrieved = await repo.getHypothesis(USER_ID, hyp.id);
+    expect(retrieved!.creationRationale).toBe("Creation reason");
+    expect(retrieved!.lastAssessmentRationale).not.toBeNull();
+    expect(retrieved!.lastAssessmentRationale).not.toBe("Creation reason");
+  });
+
+  // ── Correction: untested assumptions are explicit ──────────────────
+
+  it("untestedAssumptions is an explicit string array, not a hard-coded number", async () => {
+    const hyp = await createHypothesis(repo);
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    // Must be an array of strings, not the number 0.
+    expect(Array.isArray(assessment.evidence.untestedAssumptions)).toBe(true);
+    // With no evidence, there should be at least one untested assumption
+    // (the hypothesis itself is untested).
+    expect(assessment.evidence.untestedAssumptions.length).toBeGreaterThan(0);
+    expect(typeof assessment.evidence.untestedAssumptions[0]).toBe("string");
+  });
+
+  it("untested assumptions identifies lack of observed outcomes", async () => {
+    const hyp = await createHypothesis(repo);
+
+    // Link only user_report evidence (no observed outcomes).
+    const e = await createEvidence(repo, {
+      description: "I feel excluded",
+      sourceType: "user_report",
+      epistemicType: "interpretation",
+    });
+    await linkEvidence(repo, hyp.id, e.id, "supports");
+
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    const untestedText = assessment.evidence.untestedAssumptions.join(" ");
+    expect(untestedText).toContain("observed outcomes");
+  });
+
+  it("untested assumptions is an empty list when evidence is well-covered", async () => {
+    const hyp = await createHypothesis(repo);
+
+    // 4 supporting observed outcomes, 0 contradicting → strong
+    // No untested assumptions expected: has observed outcomes,
+    // no contradicting, not balanced.
+    for (let i = 0; i < 4; i++) {
+      const e = await createEvidence(repo, {
+        description: `Observed support ${i + 1}`,
+        sourceType: "observed_outcome",
+      });
+      await linkEvidence(repo, hyp.id, e.id, "supports");
+    }
+
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    expect(assessment.evidence.untestedAssumptions).toHaveLength(0);
+  });
+
+  it("does not claim observed outcomes automatically outweigh arbitrary contradicting evidence", async () => {
+    const hyp = await createHypothesis(repo);
+
+    // 3 supporting observed outcomes vs 3 contradicting interpretations.
+    // supporting (3) is NOT > 2 * contradicting (6), so confidence
+    // should NOT be "strong" — even though observed outcomes are present.
+    for (let i = 0; i < 3; i++) {
+      const e = await createEvidence(repo, {
+        description: `Observed support ${i + 1}`,
+        sourceType: "observed_outcome",
+        epistemicType: "fact",
+      });
+      await linkEvidence(repo, hyp.id, e.id, "supports");
+    }
+    for (let i = 0; i < 3; i++) {
+      const e = await createEvidence(repo, {
+        description: `Interpretation contra ${i + 1}`,
+        sourceType: "user_report",
+        epistemicType: "interpretation",
+      });
+      await linkEvidence(repo, hyp.id, e.id, "contradicts");
+    }
+
+    const links = await repo.getHypothesisEvidenceLinks(USER_ID, hyp.id);
+    const assessment = await engine.evaluateHypothesis(hyp, links);
+
+    // 3 supporting, 3 contradicting → tentative (supporting <= contradicting)
+    expect(assessment.confidence).toBe("tentative");
+    // The rationale should NOT claim observed outcomes "carry more weight"
+    // in a way that overrides the count-based assessment.
+    expect(assessment.rationale).not.toContain("carry more weight");
+  });
 });
 
 // ── No numeric confidence in API/domain types ────────────────────────
@@ -388,7 +549,8 @@ describe("Stage C: No numeric confidence", () => {
       statement: "Test",
       confidence: "moderate",
       status: "active",
-      rationale: "Test",
+      creationRationale: "Test reason",
+      lastAssessmentRationale: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
