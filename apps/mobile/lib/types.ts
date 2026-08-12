@@ -156,6 +156,8 @@ export interface HypothesisAssessment {
 
 export type ExperimentStatus = "proposed" | "active" | "completed" | "abandoned";
 
+export type OutcomeClassification = "supports" | "contradicts" | "inconclusive";
+
 export interface Experiment {
   id: string;
   hypothesisId: string;
@@ -167,7 +169,10 @@ export interface Experiment {
   reviewDate: string | null;
   status: ExperimentStatus;
   outcome: string | null;
+  outcomeClassification: OutcomeClassification | null;
+  outcomeEvidenceId: string | null;
   outcomeRecordedAt: string | null;
+  reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -180,4 +185,33 @@ export interface ExperimentProposal {
   inconclusiveSignal: string;
   reviewDate: string;
   rationale: string;
+}
+
+// ── Experiment Outcome (Stage E) ───────────────────────────────────────
+
+export interface ExperimentOutcomeResult {
+  experiment: Experiment;
+  classification: OutcomeClassification;
+  evidence: Evidence | null;
+}
+
+// ── Experiment Review (Stage F) ────────────────────────────────────────
+
+export interface ExperimentReviewResult {
+  hypothesisId: string;
+  hypothesisStatement: string;
+  experimentId: string;
+  classification: OutcomeClassification;
+  previousConfidence: ConfidenceCategory;
+  newConfidence: ConfidenceCategory;
+  confidenceChanged: boolean;
+  previousSupportingCount: number;
+  newSupportingCount: number;
+  previousContradictingCount: number;
+  newContradictingCount: number;
+  newlyLinkedEvidenceId: string | null;
+  newUntestedAssumptions: string[];
+  previousAssessmentRationale: string | null;
+  newAssessmentRationale: string;
+  explanation: string;
 }

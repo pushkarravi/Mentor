@@ -15,6 +15,8 @@ import type {
   ExperimentProposal,
   Hypothesis,
   ExperimentStatus,
+  OutcomeClassification,
+  ExperimentReviewResult,
 } from "../lib/types";
 
 const STATUS_COLORS: Record<ExperimentStatus, string> = {
@@ -29,6 +31,18 @@ const STATUS_LABELS: Record<ExperimentStatus, string> = {
   active: "Active",
   completed: "Completed",
   abandoned: "Abandoned",
+};
+
+const CLASSIFICATION_LABELS: Record<OutcomeClassification, string> = {
+  supports: "Supports",
+  contradicts: "Contradicts",
+  inconclusive: "Inconclusive",
+};
+
+const CLASSIFICATION_COLORS: Record<OutcomeClassification, string> = {
+  supports: "#059669",
+  contradicts: "#dc2626",
+  inconclusive: "#8b8b8b",
 };
 
 export default function ExperimentsScreen() {
@@ -53,6 +67,19 @@ export default function ExperimentsScreen() {
   const [proposal, setProposal] = useState<ExperimentProposal | null>(null);
   const [recommending, setRecommending] = useState(false);
   const [recommendHypothesisId, setRecommendHypothesisId] = useState("");
+
+  // Outcome recording modal
+  const [outcomeExpId, setOutcomeExpId] = useState<string | null>(null);
+  const [outcomeText, setOutcomeText] = useState("");
+  const [observedFact, setObservedFact] = useState("");
+  const [outcomeClassification, setOutcomeClassification] =
+    useState<OutcomeClassification>("supports");
+  const [recordingOutcome, setRecordingOutcome] = useState(false);
+
+  // Review result modal
+  const [reviewResult, setReviewResult] =
+    useState<ExperimentReviewResult | null>(null);
+  const [reviewing, setReviewing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -171,6 +198,63 @@ export default function ExperimentsScreen() {
     }
   }, [proposal, load]);
 
+  const openOutcomeModal = (expId: string) => {
+    setOutcomeExpId(expId);
+    setOutcomeText("");
+    setObservedFact("");
+    setOutcomeClassification("supports");
+  };
+
+  const handleRecordOutcome = useCallback(async () => {
+    if (!outcomeExpId || !outcomeText.trim()) return;
+    if (
+      (outcomeClassification === "supports" ||
+        outcomeClassification === "contradicts") &&
+      !observedFact.trim()
+    ) {
+      setError(
+        "A factual observation is required when the outcome supports or contradicts the hypothesis.",
+      );
+      return;
+    }
+    setRecordingOutcome(true);
+    setError(null);
+    try {
+      await api.recordOutcome(
+        outcomeExpId,
+        outcomeText,
+        outcomeClassification === "inconclusive" ? null : observedFact,
+        outcomeClassification,
+      );
+      setOutcomeExpId(null);
+      setOutcomeText("");
+      setObservedFact("");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to record outcome");
+    } finally {
+      setRecordingOutcome(false);
+    }
+  }, [outcomeExpId, outcomeText, observedFact, outcomeClassification, load]);
+
+  const handleReview = useCallback(
+    async (expId: string) => {
+      setReviewing(true);
+      setError(null);
+      try {
+        const result = await api.reviewExperiment(expId);
+        setReviewResult(result);
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "Failed to review experiment",
+        );
+      } finally {
+        setReviewing(false);
+      }
+    },
+    [],
+  );
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -243,6 +327,59 @@ export default function ExperimentsScreen() {
                 <View style={[styles.signalBox, { borderLeftColor: "#2c3e50" }]}>
                   <Text style={styles.signalLabel}>Why This Matters</Text>
                   <Text style={styles.signalText}>{exp.rationale}</Text>
+                </View>
+
+                {/* ── Outcome section (Stage E) ─────────────────────── */}
+                {exp.outcome && (
+                  <View style={styles.outcomeBox}>
+                    <Text style={styles.outcomeLabel}>Recorded Outcome</Text>
+                    <Text style={styles.outcomeText}>{exp.outcome}</Text>
+                    {exp.outcomeClassification && (
+                      <View
+                        style={[
+                          styles.classificationBadge,
+                          {
+                            backgroundColor:
+                              CLASSIFICATION_COLORS[exp.outcomeClassification],
+                          },
+                        ]}
+                      >
+                        <Text style={styles.statusText}>
+                          {CLASSIFICATION_LABELS[exp.outcomeClassification]}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* ── Action buttons ────────────────────────────────── */}
+                <View style={styles.actionRow}>
+                  {!exp.outcome && exp.status !== "completed" && (
+                    <Pressable
+                      style={[styles.actionButton, styles.actionPrimary]}
+                      onPress={() => openOutcomeModal(exp.id)}
+                    >
+                      <Text style={styles.actionButtonText}>
+                        Record Outcome
+                      </Text>
+                    </Pressable>
+                  )}
+                  {exp.outcome && !exp.reviewedAt && (
+                    <Pressable
+                      style={[styles.actionButton, styles.actionReview]}
+                      onPress={() => handleReview(exp.id)}
+                      disabled={reviewing}
+                    >
+                      <Text style={styles.actionButtonText}>
+                        {reviewing ? "Reviewing..." : "Review & Reassess"}
+                      </Text>
+                    </Pressable>
+                  )}
+                  {exp.reviewedAt && (
+                    <Text style={styles.reviewedTag}>
+                      Reviewed {exp.reviewedAt.split("T")[0]}
+                    </Text>
+                  )}
                 </View>
               </View>
             ))}
@@ -528,6 +665,215 @@ export default function ExperimentsScreen() {
           ) : null}
         </View>
       </Modal>
+
+      {/* ── Outcome Recording Modal (Stage E) ─────────────────────── */}
+      <Modal
+        visible={outcomeExpId !== null}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setOutcomeExpId(null)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Record Outcome</Text>
+            <Pressable onPress={() => setOutcomeExpId(null)}>
+              <Text style={styles.closeButton}>Close</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.modalContent}>
+            <View style={styles.field}>
+              <Text style={styles.label}>What happened? (raw narrative)</Text>
+              <Text style={styles.hint}>
+                Describe what happened in your own words. This may include
+                interpretations and feelings. It is preserved as-is.
+              </Text>
+              <TextInput
+                style={[styles.input, styles.multiline]}
+                value={outcomeText}
+                onChangeText={setOutcomeText}
+                placeholder="Describe what actually happened..."
+                placeholderTextColor="#999"
+                multiline
+                numberOfLines={4}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Classification</Text>
+              <View style={styles.classificationPicker}>
+                {(
+                  ["supports", "contradicts", "inconclusive"] as const
+                ).map((c) => (
+                  <Pressable
+                    key={c}
+                    style={[
+                      styles.classificationItem,
+                      outcomeClassification === c &&
+                        styles.classificationItemSelected,
+                      {
+                        borderColor:
+                          outcomeClassification === c
+                            ? CLASSIFICATION_COLORS[c]
+                            : "#d1d5db",
+                      },
+                    ]}
+                    onPress={() => setOutcomeClassification(c)}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontWeight:
+                          outcomeClassification === c ? "600" : "400",
+                        color:
+                          outcomeClassification === c
+                            ? CLASSIFICATION_COLORS[c]
+                            : "#666",
+                      }}
+                    >
+                      {CLASSIFICATION_LABELS[c]}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            {outcomeClassification !== "inconclusive" && (
+              <View style={styles.field}>
+                <Text style={styles.label}>Factual observation</Text>
+                <Text style={styles.hint}>
+                  A normalized, observable fact distilled from the narrative.
+                  This becomes fact-grade evidence. It must be something you
+                  actually observed, not an interpretation.
+                </Text>
+                <TextInput
+                  style={[styles.input, styles.multiline]}
+                  value={observedFact}
+                  onChangeText={setObservedFact}
+                  placeholder="e.g. I was not invited to the roadmap planning meeting on Aug 12."
+                  placeholderTextColor="#999"
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
+            )}
+
+            <Pressable
+              style={[styles.button, styles.buttonPrimary]}
+              onPress={handleRecordOutcome}
+              disabled={recordingOutcome}
+            >
+              <Text style={styles.buttonText}>
+                {recordingOutcome ? "Recording..." : "Record Outcome"}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ── Review Result Modal (Stage F) ─────────────────────────── */}
+      <Modal
+        visible={reviewResult !== null}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => {
+          setReviewResult(null);
+          load();
+        }}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Hypothesis Reassessment</Text>
+            <Pressable
+              onPress={() => {
+                setReviewResult(null);
+                load();
+              }}
+            >
+              <Text style={styles.closeButton}>Close</Text>
+            </Pressable>
+          </View>
+
+          {reviewResult && (
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              <Text style={styles.reviewHypStatement}>
+                {reviewResult.hypothesisStatement}
+              </Text>
+
+              {/* Before */}
+              <View style={styles.deltaSection}>
+                <Text style={styles.deltaLabel}>Before</Text>
+                <Text style={styles.confidenceText}>
+                  {reviewResult.previousConfidence}
+                </Text>
+                <Text style={styles.countsText}>
+                  {reviewResult.previousSupportingCount} supporting /{" "}
+                  {reviewResult.previousContradictingCount} contradicting
+                </Text>
+              </View>
+
+              {/* New evidence */}
+              {reviewResult.classification !== "inconclusive" && (
+                <View style={styles.deltaSection}>
+                  <Text style={styles.deltaLabel}>New evidence</Text>
+                  <Text style={styles.classificationText}>
+                    Classification:{" "}
+                    {CLASSIFICATION_LABELS[reviewResult.classification]}
+                  </Text>
+                </View>
+              )}
+
+              {/* After */}
+              <View style={styles.deltaSection}>
+                <Text style={styles.deltaLabel}>After</Text>
+                <Text style={styles.confidenceText}>
+                  {reviewResult.newConfidence}
+                </Text>
+                <Text style={styles.countsText}>
+                  {reviewResult.newSupportingCount} supporting /{" "}
+                  {reviewResult.newContradictingCount} contradicting
+                </Text>
+                {reviewResult.confidenceChanged ? (
+                  <Text style={styles.changedTag}>Confidence changed</Text>
+                ) : (
+                  <Text style={styles.unchangedTag}>
+                    Confidence unchanged
+                  </Text>
+                )}
+              </View>
+
+              {/* What changed */}
+              <View style={styles.explanationBox}>
+                <Text style={styles.deltaLabel}>What changed</Text>
+                <Text style={styles.explanationText}>
+                  {reviewResult.explanation}
+                </Text>
+              </View>
+
+              {reviewResult.newUntestedAssumptions.length > 0 && (
+                <View style={styles.assumptionsBox}>
+                  <Text style={styles.deltaLabel}>Untested assumptions</Text>
+                  {reviewResult.newUntestedAssumptions.map((a, i) => (
+                    <Text key={i} style={styles.assumptionText}>
+                      {"\u2022"} {a}
+                    </Text>
+                  ))}
+                </View>
+              )}
+
+              <Pressable
+                style={[styles.button, styles.buttonPrimary]}
+                onPress={() => {
+                  setReviewResult(null);
+                  load();
+                }}
+              >
+                <Text style={styles.buttonText}>Done</Text>
+              </Pressable>
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -656,6 +1002,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#2c3e50",
     lineHeight: 20,
+  },
+  outcomeBox: {
+    backgroundColor: "#fef9e7",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#f0e6c0",
+  },
+  outcomeLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#888",
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  outcomeText: {
+    fontSize: 14,
+    color: "#2c3e50",
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  classificationBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+  },
+  actionButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  actionPrimary: {
+    backgroundColor: "#2c3e50",
+  },
+  actionReview: {
+    backgroundColor: "#059669",
+  },
+  actionButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  reviewedTag: {
+    fontSize: 13,
+    color: "#059669",
+    fontWeight: "500",
   },
   recommendSection: {
     marginTop: 32,
@@ -800,5 +1200,94 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#2c3e50",
     lineHeight: 20,
+  },
+  classificationPicker: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  classificationItem: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  classificationItemSelected: {
+    borderWidth: 2,
+  },
+  // ── Review result styles ─────────────────────────────────────────
+  reviewHypStatement: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#1a1a2e",
+    marginBottom: 20,
+    lineHeight: 24,
+    fontStyle: "italic",
+  },
+  deltaSection: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 12,
+  },
+  deltaLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#888",
+    marginBottom: 8,
+    textTransform: "uppercase",
+  },
+  confidenceText: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#1a1a2e",
+    marginBottom: 4,
+    textTransform: "capitalize",
+  },
+  countsText: {
+    fontSize: 14,
+    color: "#666",
+  },
+  classificationText: {
+    fontSize: 15,
+    color: "#2c3e50",
+    fontWeight: "500",
+  },
+  changedTag: {
+    fontSize: 13,
+    color: "#d97706",
+    fontWeight: "600",
+    marginTop: 6,
+  },
+  unchangedTag: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 6,
+  },
+  explanationBox: {
+    backgroundColor: "#eef6ff",
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: "#2563eb",
+  },
+  explanationText: {
+    fontSize: 14,
+    color: "#2c3e50",
+    lineHeight: 22,
+  },
+  assumptionsBox: {
+    backgroundColor: "#fef9e7",
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 16,
+  },
+  assumptionText: {
+    fontSize: 13,
+    color: "#8b6914",
+    lineHeight: 20,
+    marginBottom: 4,
   },
 });

@@ -514,6 +514,7 @@ export class InMemoryConversationRepository
       outcomeClassification: null,
       outcomeEvidenceId: null,
       outcomeRecordedAt: null,
+      reviewedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -592,5 +593,60 @@ export class InMemoryConversationRepository
     exp.updatedAt = now;
 
     return { experiment: exp, evidence };
+  }
+
+  async applyExperimentOutcomeReviewAtomic(
+    userId: string,
+    experimentId: string,
+    data: {
+      hypothesisId: string;
+      evidenceId: string | null;
+      linkType: "supports" | "contradicts" | null;
+      newConfidence: ConfidenceCategory;
+      newAssessmentRationale: string;
+    },
+  ): Promise<{
+    experiment: ExperimentData;
+    hypothesis: HypothesisData;
+    link: HypothesisEvidenceLink | null;
+  } | null> {
+    // ── Atomic boundary ──────────────────────────────────────────
+    // In the in-memory implementation, these steps are synchronous
+    // and cannot partially fail. A Prisma implementation MUST wrap
+    // them in $transaction to guarantee the same atomicity.
+
+    const exp = this.experiments.find(
+      (e) => e.id === experimentId && e.userId === userId,
+    );
+    if (!exp || exp.outcome === null || exp.reviewedAt !== null) return null;
+
+    const hyp = this.hypotheses.find(
+      (h) => h.id === data.hypothesisId && h.userId === userId,
+    );
+    if (!hyp) return null;
+
+    const now = new Date().toISOString();
+
+    // Create the Evidence→Hypothesis link if applicable.
+    let link: HypothesisEvidenceLink | null = null;
+    if (data.linkType !== null && data.evidenceId !== null) {
+      link = await this.addHypothesisEvidenceLink(userId, {
+        hypothesisId: data.hypothesisId,
+        evidenceId: data.evidenceId,
+        linkType: data.linkType,
+      });
+    }
+
+    // Update hypothesis confidence + assessment rationale.
+    // creationRationale is NEVER overwritten.
+    hyp.confidence = data.newConfidence;
+    hyp.lastAssessmentRationale = data.newAssessmentRationale;
+    hyp.updatedAt = now;
+
+    // Mark the experiment as reviewed.
+    exp.reviewedAt = now;
+    exp.updatedAt = now;
+
+    return { experiment: exp, hypothesis: hyp, link };
   }
 }

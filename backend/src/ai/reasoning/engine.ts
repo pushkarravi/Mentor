@@ -13,6 +13,7 @@ import type {
   ExperimentProposal,
   ExperimentData,
   ExperimentOutcomeResult,
+  ExperimentReviewResult,
   OutcomeClassification,
   MessageData,
   ReasoningLens,
@@ -722,6 +723,304 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
     };
   }
 
+  // ── Stage F: Experiment outcome review ────────────────────────────────
+
+  /**
+   * reviewExperimentOutcome — closes the M0 loop:
+   *   completed Experiment → recorded outcome → observed_outcome
+   *   Evidence → explicit Evidence→Hypothesis link → re-evaluate
+   *   hypothesis using all linked evidence → persist new confidence
+   *   + assessment rationale → return before/after delta.
+   *
+   * Flow:
+   * 1. Validate the experiment has a recorded outcome and has not
+   *    already been reviewed (idempotency).
+   * 2. Retrieve the hypothesis using experiment.hypothesisId — the
+   *    authoritative identity. Never ask an AI model which hypothesis
+   *    the outcome belongs to.
+   * 3. Retrieve existing Evidence→Hypothesis links + their evidence.
+   * 4. Capture the previous assessment state (confidence, counts,
+   *    rationale).
+   * 5. Construct the PROSPECTIVE evidence-link set in memory — the
+   *    existing links plus the new outcome Evidence (if applicable).
+   *    Do NOT persist yet.
+   * 6. Call evaluateHypothesis() on the prospective set.
+   * 7. Compare previous vs new assessment.
+   * 8. Persist: create the Evidence→Hypothesis link + update the
+   *    hypothesis confidence + rationale + mark experiment reviewed,
+   *    all in one atomic repo transaction.
+   * 9. Return a structured ExperimentReviewResult with the full
+   *    before/after delta and a human-readable explanation.
+   *
+   * Key constraints:
+   * - The link direction is derived from the user's explicit Stage E
+   *   classification, NOT from LLM analysis of free text.
+   *   supports → LinkType.supports
+   *   contradicts → LinkType.contradicts
+   *   inconclusive → no link, no evidence, no confidence change.
+   * - Confidence may stay the same. One supporting observation does
+   *   not automatically upgrade from tentative.
+   * - One experiment result ≠ overall hypothesis truth. The hypothesis
+   *   status is NOT automatically set to confirmed (Invariant #1).
+   * - The full linked evidence set is used for reassessment, not just
+   *   the latest experiment outcome.
+   * - creationRationale is NEVER overwritten. Only
+   *   lastAssessmentRationale is updated.
+   * - No numeric probability appears anywhere (Invariant #13).
+   * - Idempotent: a second review call returns a controlled
+   *   "already reviewed" error.
+   */
+  async reviewExperimentOutcome(
+    experiment: ExperimentData,
+    repo: ConversationRepository,
+    userId: string,
+  ): Promise<ExperimentReviewResult> {
+    // ── Guard: experiment must have a recorded outcome ─────────────
+    if (experiment.outcome === null || experiment.outcomeClassification === null) {
+      throw new ReviewError(
+        "Cannot review an experiment that has no recorded outcome. " +
+          "Record an outcome first (Stage E).",
+      );
+    }
+
+    // ── Guard: idempotency — cannot review twice ───────────────────
+    if (experiment.reviewedAt !== null) {
+      throw new ReviewError(
+        "This experiment outcome has already been reviewed. " +
+          "The hypothesis reassessment was applied and cannot be repeated.",
+      );
+    }
+
+    const classification = experiment.outcomeClassification;
+
+    // ── 1. Retrieve the hypothesis via authoritative identity ──────
+    const hypothesis = await repo.getHypothesis(
+      userId,
+      experiment.hypothesisId,
+    );
+    if (!hypothesis) {
+      throw new ReviewError(
+        "The hypothesis linked to this experiment could not be found. " +
+          "The experiment's hypothesisId is the authoritative identity — " +
+          "no model inference was used to locate the hypothesis.",
+      );
+    }
+
+    // ── 2. Retrieve existing evidence links ────────────────────────
+    const existingLinks = await repo.getHypothesisEvidenceLinks(
+      userId,
+      hypothesis.id,
+    );
+
+    // ── 3. Capture previous assessment state ───────────────────────
+    const previousAssessment = await this.evaluateHypothesis(
+      hypothesis,
+      existingLinks,
+    );
+
+    const previousConfidence = previousAssessment.confidence;
+    const previousSupporting = previousAssessment.evidence.supporting;
+    const previousContradicting = previousAssessment.evidence.contradicting;
+    const previousRationale = hypothesis.lastAssessmentRationale;
+
+    // ── 4. Construct prospective evidence-link set ─────────────────
+    // For supports/contradicts, the new outcome Evidence is added to
+    // the prospective set. For inconclusive, no new evidence.
+    const newEvidenceId = experiment.outcomeEvidenceId;
+    const linkType: "supports" | "contradicts" | null =
+      classification === "supports"
+        ? "supports"
+        : classification === "contradicts"
+          ? "contradicts"
+          : null;
+
+    let prospectiveLinks = existingLinks;
+
+    if (linkType !== null && newEvidenceId !== null) {
+      const newEvidence = await repo.getEvidence(userId, newEvidenceId);
+      if (newEvidence) {
+        const prospectiveLink: HypothesisEvidenceLink = {
+          id: "prospective-" + newEvidenceId,
+          userId,
+          hypothesisId: hypothesis.id,
+          evidenceId: newEvidenceId,
+          linkType,
+          createdAt: new Date().toISOString(),
+        };
+        prospectiveLinks = [
+          ...existingLinks,
+          { link: prospectiveLink, evidence: newEvidence },
+        ];
+      }
+    }
+
+    // ── 5. Evaluate prospectively ──────────────────────────────────
+    const newAssessment = await this.evaluateHypothesis(
+      hypothesis,
+      prospectiveLinks,
+    );
+
+    const newConfidence = newAssessment.confidence;
+    const newSupporting = newAssessment.evidence.supporting;
+    const newContradicting = newAssessment.evidence.contradicting;
+    const newRationale = newAssessment.rationale;
+    const newUntestedAssumptions = newAssessment.evidence.untestedAssumptions;
+
+    // ── 6. Persist atomically ──────────────────────────────────────
+    // The repo creates the link + updates the hypothesis + marks the
+    // experiment reviewed in one transaction. No partial state.
+    if (linkType === null || newEvidenceId === null) {
+      // Inconclusive: no link, no hypothesis update, mark reviewed only.
+      // We still persist the review marker to prevent duplicate reviews.
+      // Confidence and rationale are unchanged — we persist the same
+      // values to keep the transaction shape consistent.
+      const result = await repo.applyExperimentOutcomeReviewAtomic(
+        userId,
+        experiment.id,
+        {
+          hypothesisId: hypothesis.id,
+          evidenceId: null,
+          linkType: null,
+          newConfidence: previousConfidence,
+          newAssessmentRationale: previousRationale ?? newRationale,
+        },
+      );
+      if (!result) {
+        throw new ReviewError(
+          "Failed to apply the experiment review — the experiment " +
+            "could not be found or has already been reviewed.",
+        );
+      }
+    } else {
+      const result = await repo.applyExperimentOutcomeReviewAtomic(
+        userId,
+        experiment.id,
+        {
+          hypothesisId: hypothesis.id,
+          evidenceId: newEvidenceId,
+          linkType,
+          newConfidence,
+          newAssessmentRationale: newRationale,
+        },
+      );
+      if (!result) {
+        throw new ReviewError(
+          "Failed to apply the experiment review — the experiment " +
+            "could not be found or has already been reviewed.",
+        );
+      }
+    }
+
+    // ── 7. Build the before/after delta + explanation ──────────────
+    const confidenceChanged = previousConfidence !== newConfidence;
+    const explanation = this.buildReviewExplanation(
+      classification,
+      previousConfidence,
+      newConfidence,
+      confidenceChanged,
+      previousSupporting,
+      newSupporting,
+      previousContradicting,
+      newContradicting,
+      newUntestedAssumptions,
+    );
+
+    return {
+      hypothesisId: hypothesis.id,
+      hypothesisStatement: hypothesis.statement,
+      experimentId: experiment.id,
+      classification,
+      previousConfidence,
+      newConfidence,
+      confidenceChanged,
+      previousSupportingCount: previousSupporting,
+      newSupportingCount: newSupporting,
+      previousContradictingCount: previousContradicting,
+      newContradictingCount: newContradicting,
+      newlyLinkedEvidenceId: linkType !== null ? newEvidenceId : null,
+      newUntestedAssumptions,
+      previousAssessmentRationale: previousRationale,
+      newAssessmentRationale: newRationale,
+      explanation,
+    };
+  }
+
+  /**
+   * Builds a concise human-readable explanation of what changed in
+   * the hypothesis assessment after the experiment outcome review.
+   *
+   * This is NOT a dashboard summary — it is a serious, compact
+   * explanation that references the evidence delta and whether
+   * confidence moved. It respects Invariant #13: no numeric
+   * probabilities, only qualitative categories and evidence counts.
+   */
+  private buildReviewExplanation(
+    classification: OutcomeClassification,
+    previousConfidence: ConfidenceCategory,
+    newConfidence: ConfidenceCategory,
+    confidenceChanged: boolean,
+    previousSupporting: number,
+    newSupporting: number,
+    previousContradicting: number,
+    newContradicting: number,
+    untestedAssumptions: string[],
+  ): string {
+    const parts: string[] = [];
+
+    if (classification === "inconclusive") {
+      parts.push(
+        "This experiment did not produce evidence either way. " +
+          `Your assessment remains ${newConfidence}. ` +
+          "The issue wasn't disproven; this particular test simply " +
+          "didn't discriminate between the competing explanations.",
+      );
+      return parts.join(" ");
+    }
+
+    const direction =
+      classification === "supports" ? "supports" : "contradicts";
+
+    parts.push(
+      `The observed outcome ${direction} the hypothesis.`,
+    );
+
+    if (confidenceChanged) {
+      parts.push(
+        `Confidence changed from ${previousConfidence} to ${newConfidence}.`,
+      );
+    } else {
+      parts.push(
+        `Confidence remains ${newConfidence}.`,
+      );
+      if (classification === "supports") {
+        parts.push(
+          `The experiment added one observed supporting outcome, ` +
+            `but the current evidence base is still too limited ` +
+            `to move beyond ${newConfidence}.`,
+        );
+      } else {
+        parts.push(
+          `The experiment added one observed contradicting outcome, ` +
+            `but the broader evidence base does not yet warrant ` +
+            `a change from ${newConfidence}.`,
+        );
+      }
+    }
+
+    parts.push(
+      `Evidence: ${previousSupporting} supporting / ${previousContradicting} contradicting → ` +
+        `${newSupporting} supporting / ${newContradicting} contradicting.`,
+    );
+
+    if (untestedAssumptions.length > 0) {
+      parts.push(
+        `Remaining untested assumptions: ${untestedAssumptions.join(" ")}`,
+      );
+    }
+
+    return parts.join(" ");
+  }
+
   // ── Stage D: Experiment recommendation ──────────────────────────────
 
   /**
@@ -990,6 +1289,19 @@ export class OutcomeError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OutcomeError";
+  }
+}
+
+/**
+ * Controlled error for experiment review failures. Thrown when an
+ * experiment has no recorded outcome, has already been reviewed, or
+ * the hypothesis could not be found. The route handler surfaces this
+ * as a user-visible error.
+ */
+export class ReviewError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReviewError";
   }
 }
 

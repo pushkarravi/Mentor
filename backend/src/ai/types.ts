@@ -226,6 +226,13 @@ export interface ExperimentData {
   outcomeClassification: OutcomeClassification | null;
   outcomeEvidenceId: string | null;
   outcomeRecordedAt: string | null;
+  /**
+   * Stage F: timestamp when the experiment outcome was reviewed and
+   * the hypothesis was reassessed. Null until reviewExperimentOutcome()
+   * has run. Used for idempotency — a second review call returns the
+   * existing result rather than creating a duplicate evidence link.
+   */
+  reviewedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -279,6 +286,50 @@ export interface ExperimentOutcomeResult {
   experiment: ExperimentData;
   classification: OutcomeClassification;
   evidence: EvidenceData | null;
+}
+
+// ── Experiment Review (Stage F) ──────────────────────────────────────────
+
+/**
+ * ExperimentReviewResult — the return value of
+ * reviewExperimentOutcome(). Contains the full before/after delta
+ * of the hypothesis reassessment, plus a human-readable explanation
+ * of what changed and why.
+ *
+ * This is the core M0 product value: the longitudinal delta, not
+ * just a final confidence label.
+ */
+export interface ExperimentReviewResult {
+  hypothesisId: string;
+  hypothesisStatement: string;
+  experimentId: string;
+  classification: OutcomeClassification;
+
+  previousConfidence: ConfidenceCategory;
+  newConfidence: ConfidenceCategory;
+  confidenceChanged: boolean;
+
+  previousSupportingCount: number;
+  newSupportingCount: number;
+  previousContradictingCount: number;
+  newContradictingCount: number;
+
+  /** ID of the newly linked Evidence, if any (null for inconclusive). */
+  newlyLinkedEvidenceId: string | null;
+
+  newUntestedAssumptions: string[];
+
+  /** Previous assessment rationale, if available. */
+  previousAssessmentRationale: string | null;
+  /** New assessment rationale reflecting the full evidence set. */
+  newAssessmentRationale: string;
+
+  /**
+   * Concise human-readable explanation of what changed and why.
+   * Explains the delta in evidence counts, whether confidence
+   * changed, and what the new evidence means for the hypothesis.
+   */
+  explanation: string;
 }
 
 // ── Memory candidate (from extraction pipeline) ────────────────────────

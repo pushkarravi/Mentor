@@ -267,4 +267,40 @@ n   * contradict another — links are per-pair.
     experiment: ExperimentData;
     evidence: EvidenceData | null;
   } | null>;
+
+  /**
+   * Atomically applies the Stage F review: creates the
+   * Evidence→Hypothesis link (if applicable), updates the hypothesis
+   * confidence + assessment rationale, and marks the experiment as
+   * reviewed. Single persistence boundary — no partial state.
+   *
+   * For supports: create link(evidence → hypothesis, "supports"),
+   *   update hypothesis confidence + rationale, mark experiment
+   *   reviewed.
+   * For contradicts: create link(evidence → hypothesis, "contradicts"),
+   *   update hypothesis confidence + rationale, mark experiment
+   *   reviewed.
+   * For inconclusive: no link created, no hypothesis update, mark
+   *   experiment reviewed only.
+   *
+   * Returns null if the experiment is not found, has no recorded
+   * outcome, or has already been reviewed (idempotency guard).
+   *
+   * A future Prisma implementation MUST use $transaction.
+   */
+  applyExperimentOutcomeReviewAtomic(
+    userId: string,
+    experimentId: string,
+    data: {
+      hypothesisId: string;
+      evidenceId: string | null;
+      linkType: "supports" | "contradicts" | null;
+      newConfidence: ConfidenceCategory;
+      newAssessmentRationale: string;
+    },
+  ): Promise<{
+    experiment: ExperimentData;
+    hypothesis: HypothesisData;
+    link: HypothesisEvidenceLink | null;
+  } | null>;
 }

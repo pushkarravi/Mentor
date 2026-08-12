@@ -177,21 +177,54 @@ _(Update this section every milestone.)_
   Edits are validated again at the persistence boundary (ai_inference + fact is rejected in
   code, not just by prompt). Confirmed candidates are persisted as Evidence + Memory records.
   MockProvider generates deterministic mock candidates marked with [Mock] prefixes.
+- **M0 Stage C complete** — Hypothesis creation and evaluation. Users create hypotheses from
+  confirmed evidence. `evaluateHypothesis()` computes qualitative confidence
+  (tentative/moderate/strong) from evidence counts, identifies untested assumptions, and
+  produces a rationale referencing the actual evidence content. `creationRationale` is never
+  overwritten — only `lastAssessmentRationale` is updated by evaluation.
+- **M0 Stage D complete** — Experiment recommendation and creation. `recommendExperiment()`
+  proposes an experiment with supporting/contradicting/inconclusive signals, a review date,
+  and a rationale. Experiments are explicitly created by the user — no silent auto-creation.
+  Review date validation uses a strict `YYYY-MM-DD` schema shared between the API and AI
+  domain layers (single source of truth, no drift).
+- **M0 Stage E complete** — Experiment outcome recording. The user records what happened,
+  separating raw narrative (`outcomeText`, preserved verbatim on the Experiment) from a
+  normalized factual observation (`observedFact`, becomes `observed_outcome` Evidence with
+  `epistemic_type: fact`). Supports/contradicts require `observedFact`; inconclusive does
+  not. Persistence is atomic — `recordExperimentOutcomeAtomic` on the repo creates Evidence
+  + updates the experiment in one transaction. No orphaned Evidence possible.
+- **M0 Stage F complete (structurally)** — The core M0 loop is closed:
+  context → conversation → evidence → hypothesis → experiment → outcome → updated hypothesis.
+  `reviewExperimentOutcome()` links the outcome Evidence to the experiment's authoritative
+  hypothesis (via `experiment.hypothesisId`, never LLM-inferred), re-evaluates using all
+  linked evidence (prospective evaluation before persistence), and persists the link +
+  updated hypothesis confidence + rationale + experiment review marker in one atomic
+  transaction (`applyExperimentOutcomeReviewAtomic`). Returns a structured
+  `ExperimentReviewResult` with the full before/after delta (previous/new confidence,
+  supporting/contradicting counts, rationale, and a human-readable explanation).
+  Idempotent — a second review call throws `ReviewError`. Confidence may stay the same.
+  Strong confidence does not automatically set status to confirmed.
+  **127 tests passing** (typecheck, lint, tests all green; frontend typecheck green).
 - **Backend** (`backend/`): Fastify + TypeScript + Prisma + Vitest + ESLint. AIProvider interface
   with MockProvider and PerplexityProvider. CareerReasoningEngine with `analyzeClaim()`,
-  `respond()`, and `extractMemoryCandidates()`. Epistemic enforcement in code
+  `respond()`, `extractMemoryCandidates()`, `evaluateHypothesis()`, `recommendExperiment()`,
+  `recordExperimentOutcome()`, and `reviewExperimentOutcome()`. Epistemic enforcement in code
   (`validateEpistemicPair` rejects ai_inference+fact at extraction and persistence boundaries).
   Qualitative confidence computation (`computeConfidence` — tentative/moderate/strong,
   provisional M0 heuristic). Four reasoning-lens prompts (Coach, Challenger, Decision Advisor,
   Extraction v1). Retrieval module. In-memory conversation repository with evidence, memory,
-  and pending candidate methods. Fastify routes for context, conversations, candidates, evidence,
-  and memory. Zod validation including `claimComponentTypeSchema` (six categories with assumption)
-  separate from `epistemicTypeSchema` (five persistable types). 28 tests passing (typecheck, lint,
-  tests all green).
+  pending candidates, hypotheses, evidence links, experiments, and atomic outcome/review
+  methods. Fastify routes for context, conversations, candidates, evidence, memory,
+  hypotheses, and experiments (including outcome recording and review). Zod validation
+  including `claimComponentTypeSchema`, `epistemicTypeSchema`, `recordOutcomeSchema`
+  (with `superRefine` for observedFact requirement), and strict `reviewDateSchema`.
 - **Frontend** (`apps/mobile/`): Expo + TypeScript + Expo Router. Career context capture screen.
   Coach chat screen with Coach / Challenge Me / Help Me Decide controls. Claim analysis panel
   with color-coded epistemic decomposition. Candidate review panel with Confirm / Edit / Reject
-  buttons, mock badges, and inline editing.
+  buttons, mock badges, and inline editing. Hypotheses screen with confidence display and
+  evidence links. Experiments screen with creation, recommendation, outcome recording
+  (narrative + observedFact + classification), and Stage F review delta display (before/after
+  confidence, evidence counts, what-changed explanation).
 - **Prisma schema** (`backend/prisma/schema.prisma`): M0 subset written and validated
   (`prisma generate` succeeds). **No migration has been applied** — `DATABASE_URL` was not
   available in the build environment. To apply locally:
@@ -201,17 +234,29 @@ _(Update this section every milestone.)_
 - **No Bolt-specific code** — the repository is portable across Claude Code, Codex, Manus, etc.
 - Target remote: `https://github.com/pushkarravi/Mentor` (not yet pushed).
 
+### What works structurally vs. what still requires real-provider evaluation
+
+The M0 loop is **structurally complete** — all stages (A through F) are implemented, the data
+flows correctly from context through to updated hypothesis, persistence is atomic, epistemic
+invariants are enforced in code, and 127 unit tests verify the plumbing, validation, and
+edge cases. However, **M0 reasoning quality is not yet proven**. Unit tests verify structure,
+not reasoning. The `MockProvider` and `StubProvider` return deterministic placeholders, not
+genuine career reasoning. The following remain before M0 can be called complete:
+
+1. **Golden Career Scenarios evaluation**: Manually exercise scenarios #1, #3, #4, #5, #8, #10
+   from `evaluations/golden-career-scenarios.md` against the full reasoning loop using a real
+   AIProvider (Perplexity). Do not evaluate against MockProvider.
+2. **Prisma migration**: Apply the M0 schema to a real PostgreSQL database.
+3. **Real-provider integration testing**: Verify that `analyzeClaim()`, `respond()`,
+   `extractMemoryCandidates()`, and `recommendExperiment()` produce genuinely useful output
+   with a real model, not just structurally valid output.
+
 ## Next Recommended Tasks
 
-1. **Stage C**: Implement `evaluateHypothesis()` in `CareerReasoningEngine`. Add hypothesis
-   creation from confirmed evidence. Show qualitative confidence + evidence counts.
-2. **Stage D**: Implement `recommendExperiment()` in `CareerReasoningEngine`. Add experiment
-   creation tied to a hypothesis with success signal and review date.
-3. **Stage E**: Add outcome recording on experiments.
-4. **Stage F**: Implement `reviewExperimentOutcome()` — close the loop: recorded outcome becomes
-   new evidence → hypothesis reassessment visible with updated confidence.
-5. **Prisma migration**: Apply the M0 schema migration locally once PostgreSQL is available.
-6. **Golden Career Scenarios evaluation**: Once a real AIProvider (Perplexity) is connected,
+1. **Prisma migration**: Apply the M0 schema migration locally once PostgreSQL is available.
+2. **Golden Career Scenarios evaluation**: Once a real AIProvider (Perplexity) is connected,
    manually exercise scenarios #1, #3, #4, #5, #8, #10 against the reasoning loop. Do not
-   evaluate scenarios against MockProvider.
-7. Push initial commits to `https://github.com/pushkarravi/Mentor`.
+   evaluate scenarios against MockProvider. This is the acceptance step for M0 reasoning
+   quality — unit tests passing does not constitute proof.
+3. Push initial commits to `https://github.com/pushkarravi/Mentor`.
+4. After M0 is accepted via Golden Scenarios, begin M1 (Career Context expansion).

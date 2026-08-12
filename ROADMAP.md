@@ -12,24 +12,25 @@ Core loop: **Career context → Conversation → Evidence → Hypothesis → Exp
 Updated belief.**
 
 Scope:
-- [ ] Minimal senior-career context capture (a handful of fields — see PRODUCT.md "Minimal M0
+- [x] Minimal senior-career context capture (a handful of fields — see PRODUCT.md "Minimal M0
       context" — not the full onboarding flow)
-- [ ] `CareerReasoningEngine` skeleton + `AIProvider` with Perplexity implementation
-- [ ] Coach conversation with epistemic separation (fact / interpretation / assumption / emotion /
+- [x] `CareerReasoningEngine` skeleton + `AIProvider` with Perplexity implementation
+- [x] Coach conversation with epistemic separation (fact / interpretation / assumption / emotion /
       hypothesis / action) — single default "Coach" surface; internal reasoning lenses invoked as
       needed (see PRODUCT.md § Reasoning Lenses)
-- [ ] Evidence capture with `source_type` + `epistemic_type` (confirm-before-persist)
-- [ ] Career Hypothesis create/update with qualitative confidence (evidence-count based, not %)
-- [ ] Career Experiment tied to a hypothesis, with a success signal and a review point
-- [ ] Return later, record the outcome, system updates the hypothesis assessment based on that
+- [x] Evidence capture with `source_type` + `epistemic_type` (confirm-before-persist)
+- [x] Career Hypothesis create/update with qualitative confidence (evidence-count based, not %)
+- [x] Career Experiment tied to a hypothesis, with a success signal and a review point
+- [x] Return later, record the outcome, system updates the hypothesis assessment based on that
       outcome (this "close the loop" step is the actual product bet — don't skip it for speed)
 - [ ] Golden Career Scenarios suite (`evaluations/golden-career-scenarios.md`) used to sanity-check
       reasoning quality before/while building the above
-- [ ] No auth beyond a local-only single-user assumption (see ARCHITECTURE.md § Auth) — do not
+- [x] No auth beyond a local-only single-user assumption (see ARCHITECTURE.md § Auth) — do not
       spend M0 budget on login infrastructure
 - [ ] Local Postgres via Prisma; minimal schema — only the tables the loop actually needs
       (CareerContext, Person (optional, only if mentioned), Evidence, CareerHypothesis,
       CareerExperiment, Conversation, Message, Memory)
+      — schema is written and validated; migration not yet applied
 
 Explicitly NOT in M0 (moved to later milestones):
 - Full Situation Analysis workflow → M2

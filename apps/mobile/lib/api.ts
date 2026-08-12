@@ -13,6 +13,9 @@ import type {
   LinkType,
   Experiment,
   ExperimentProposal,
+  OutcomeClassification,
+  ExperimentOutcomeResult,
+  ExperimentReviewResult,
 } from "./types";
 
 const API_BASE =
@@ -176,6 +179,34 @@ export const api = {
   recommendExperiment: (hypothesisId: string) =>
     request<ExperimentProposal>(
       `/api/hypotheses/${hypothesisId}/recommend-experiment`,
+      { method: "POST" },
+    ),
+
+  // ── Experiment Outcome (Stage E) ──────────────────────────────────
+
+  recordOutcome: (
+    experimentId: string,
+    outcomeText: string,
+    observedFact: string | null,
+    classification: OutcomeClassification,
+  ) =>
+    request<ExperimentOutcomeResult>(
+      `/api/experiments/${experimentId}/outcome`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          outcomeText,
+          observedFact,
+          classification,
+        }),
+      },
+    ),
+
+  // ── Experiment Review (Stage F) ───────────────────────────────────
+
+  reviewExperiment: (experimentId: string) =>
+    request<ExperimentReviewResult>(
+      `/api/experiments/${experimentId}/review`,
       { method: "POST" },
     ),
 };

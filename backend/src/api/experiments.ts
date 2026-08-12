@@ -4,10 +4,10 @@ import type { CareerReasoningEngine } from "../ai/reasoning/engine.js";
 import { RecommendationError } from "../ai/reasoning/engine.js";
 import { createExperimentSchema } from "./schemas.js";
 import { recordOutcomeSchema } from "../ai/schemas.js";
-import { OutcomeError } from "../ai/reasoning/engine.js";
+import { OutcomeError, ReviewError } from "../ai/reasoning/engine.js";
 
 /**
- * Experiment routes — Stages D and E.
+ * Experiment routes — Stages D, E, and F.
  *
  * Experiments are explicitly created by the user. The engine can
  * recommend a proposal via recommendExperiment(), but the user
@@ -17,6 +17,10 @@ import { OutcomeError } from "../ai/reasoning/engine.js";
  * classifies it. The engine creates an observed_outcome Evidence
  * record (for supports/contradicts) and marks the experiment
  * completed. No hypothesis reassessment here — that is Stage F.
+ *
+ * Stage F: outcome review. Closes the loop — links the outcome
+ * Evidence to the hypothesis, re-evaluates using all linked evidence,
+ * and returns the before/after delta.
  */
 export function experimentRoutes(
   app: FastifyInstance,
@@ -138,6 +142,30 @@ export function experimentRoutes(
       return reply.send(result);
     } catch (e) {
       if (e instanceof OutcomeError) {
+        return reply.status(409).send({ error: e.message });
+      }
+      throw e;
+    }
+  });
+
+  // ── Review experiment outcome (Stage F) ───────────────────────────
+
+  app.post("/api/experiments/:id/review", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const exp = await repo.getExperiment(userId, id);
+    if (!exp) {
+      return reply.status(404).send({ error: "Experiment not found" });
+    }
+
+    try {
+      const result = await engine.reviewExperimentOutcome(
+        exp,
+        repo,
+        userId,
+      );
+      return reply.send(result);
+    } catch (e) {
+      if (e instanceof ReviewError) {
         return reply.status(409).send({ error: e.message });
       }
       throw e;
