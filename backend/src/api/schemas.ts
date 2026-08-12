@@ -32,6 +32,7 @@ import {
   hypothesisStatusSchema,
   linkTypeSchema,
   experimentStatusSchema,
+  reviewDateSchema,
 } from "../ai/schemas.js";
 
 // ── Career context (API input) ──────────────────────────────────────
@@ -142,7 +143,7 @@ export const createExperimentSchema = z.object({
   contradictingSignal: z.string().min(1),
   inconclusiveSignal: z.string().min(1),
   rationale: z.string().min(1),
-  reviewDate: z.string().nullable().optional(),
+  reviewDate: reviewDateSchema,
 });
 
 export const experimentResponseSchema = z.object({

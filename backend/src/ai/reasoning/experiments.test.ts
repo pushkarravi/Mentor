@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   CareerReasoningEngine,
   RecommendationError,
-  validateReviewDate,
 } from "../reasoning/engine.js";
+import { reviewDateSchema } from "../schemas.js";
 import { InMemoryConversationRepository } from "../../modules/conversations/in-memory.js";
+import { createExperimentSchema } from "../../api/schemas.js";
 import type {
   AIProvider,
   ProviderMetadata,
@@ -512,33 +513,100 @@ describe("Stage D: Hypothesis identity protection (Correction #4)", () => {
   });
 });
 
-// ── Review date validation ───────────────────────────────────────────
+// ── Review date validation — shared domain schema ───────────────────
 
-describe("Stage D: Review date validation (Correction #5)", () => {
-  it("validates a date 2 weeks in the future", () => {
+describe("Stage D: Review date validation — shared domain schema", () => {
+  const validBase = {
+    hypothesisId: "hyp1",
+    description: "Test",
+    supportingSignal: "S",
+    contradictingSignal: "C",
+    inconclusiveSignal: "I",
+    rationale: "R",
+  };
+
+  it("reviewDateSchema accepts a date 2 weeks in the future", () => {
     const d = new Date();
     d.setDate(d.getDate() + 14);
-    expect(validateReviewDate(d.toISOString().split("T")[0]!)).toBeNull();
+    const result = reviewDateSchema.safeParse(d.toISOString().split("T")[0]!);
+    expect(result.success).toBe(true);
   });
 
-  it("rejects an invalid date string", () => {
-    expect(validateReviewDate("not-a-date")).not.toBeNull();
+  it("reviewDateSchema rejects an invalid date string", () => {
+    const result = reviewDateSchema.safeParse("not-a-date");
+    expect(result.success).toBe(false);
   });
 
-  it("rejects a past date", () => {
-    expect(validateReviewDate("2020-01-01")).not.toBeNull();
+  it("reviewDateSchema rejects a past date", () => {
+    const result = reviewDateSchema.safeParse("2020-01-01");
+    expect(result.success).toBe(false);
   });
 
-  it("rejects a date less than 1 week in the future", () => {
+  it("reviewDateSchema rejects a date less than 1 week in the future", () => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
-    expect(validateReviewDate(d.toISOString().split("T")[0]!)).not.toBeNull();
+    const result = reviewDateSchema.safeParse(d.toISOString().split("T")[0]!);
+    expect(result.success).toBe(false);
   });
 
-  it("rejects a date more than 6 weeks in the future", () => {
+  it("reviewDateSchema rejects a date more than 6 weeks in the future", () => {
     const d = new Date();
     d.setDate(d.getDate() + 50);
-    expect(validateReviewDate(d.toISOString().split("T")[0]!)).not.toBeNull();
+    const result = reviewDateSchema.safeParse(d.toISOString().split("T")[0]!);
+    expect(result.success).toBe(false);
+  });
+
+  // ── Manual creation via API schema ─────────────────────────────
+
+  it("manual creation accepts a valid future review date", () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    const result = createExperimentSchema.safeParse({
+      ...validBase,
+      reviewDate: d.toISOString().split("T")[0]!,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("manual creation rejects a malformed review date", () => {
+    const result = createExperimentSchema.safeParse({
+      ...validBase,
+      reviewDate: "not-a-date",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("manual creation rejects a past review date", () => {
+    const result = createExperimentSchema.safeParse({
+      ...validBase,
+      reviewDate: "2020-01-01",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("manual creation rejects a date less than 1 week in the future", () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 3);
+    const result = createExperimentSchema.safeParse({
+      ...validBase,
+      reviewDate: d.toISOString().split("T")[0]!,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("manual creation rejects a date more than 6 weeks in the future", () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 50);
+    const result = createExperimentSchema.safeParse({
+      ...validBase,
+      reviewDate: d.toISOString().split("T")[0]!,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("manual creation rejects a missing review date", () => {
+    const result = createExperimentSchema.safeParse(validBase);
+    expect(result.success).toBe(false);
   });
 
   it("real-provider proposal with past review date is rejected", async () => {

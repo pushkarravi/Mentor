@@ -98,12 +98,64 @@ export const experimentStatusSchema = z.enum([
   "abandoned",
 ]);
 
+/**
+ * Domain-level review-date validator. Shared by the API layer (manual
+ * experiment creation) and the reasoning engine (model-generated
+ * proposals) so the rule is defined once.
+ *
+ * M0 constraints:
+ * - Valid ISO date string (YYYY-MM-DD or full ISO 8601).
+ * - Must be in the future.
+ * - Must be approximately 1–6 weeks from now (7–42 days).
+ *
+ * An experiment without a review point is difficult to close
+ * longitudinally, so the schema requires a value — null is not
+ * accepted. The Prisma column remains nullable for forward
+ * compatibility, but the domain schema enforces presence.
+ */
+const REVIEW_DATE_MIN_DAYS = 7;
+const REVIEW_DATE_MAX_DAYS = 42;
+
+export const reviewDateSchema = z
+  .string()
+  .min(1, "A review date is required.")
+  .refine((val) => !isNaN(new Date(val).getTime()), {
+    message: "The review date is not a valid date.",
+  })
+  .refine(
+    (val) => {
+      const diffDays = Math.round(
+        (new Date(val).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+      );
+      return diffDays >= 1;
+    },
+    { message: "The review date must be in the future." },
+  )
+  .refine(
+    (val) => {
+      const diffDays = Math.round(
+        (new Date(val).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+      );
+      return diffDays >= REVIEW_DATE_MIN_DAYS;
+    },
+    { message: "The review date must be at least 1 week from now." },
+  )
+  .refine(
+    (val) => {
+      const diffDays = Math.round(
+        (new Date(val).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+      );
+      return diffDays <= REVIEW_DATE_MAX_DAYS;
+    },
+    { message: "The review date must be at most 6 weeks from now." },
+  );
+
 export const experimentProposalResponseSchema = z.object({
   hypothesisId: z.string().optional(),
   description: z.string().min(1),
   supportingSignal: z.string().min(1),
   contradictingSignal: z.string().min(1),
   inconclusiveSignal: z.string().min(1),
-  reviewDate: z.string(),
+  reviewDate: reviewDateSchema,
   rationale: z.string().min(1),
 });

@@ -772,12 +772,9 @@ Be precise. Quote or closely paraphrase the user's own words. Do not invent comp
       );
     }
 
-    // 6. Validate the review date: must be valid ISO, in the future,
-    //    and approximately 1-6 weeks from now.
-    const reviewDateError = validateReviewDate(parsed.data.reviewDate);
-    if (reviewDateError) {
-      throw new RecommendationError(reviewDateError);
-    }
+    // 6. The review date was already validated by the Zod schema
+    //    (reviewDateSchema is shared with the API layer — one domain
+    //    rule, not duplicated logic).
 
     // 7. Set hypothesisId from the authoritative hypothesis argument.
     return {
@@ -889,33 +886,4 @@ export class RecommendationError extends Error {
   }
 }
 
-/**
- * Validates that a review date is a valid ISO date and is
- * approximately 1-6 weeks in the future. Returns an error message
- * string if invalid, or null if valid.
- *
- * M0 range: 1-6 weeks (7-42 days). Dates outside this range,
- * malformed strings, or historical dates are rejected.
- */
-export function validateReviewDate(dateStr: string): string | null {
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) {
-    return "The review date is not a valid date.";
-  }
 
-  const now = new Date();
-  const diffMs = date.getTime() - now.getTime();
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays < 1) {
-    return "The review date must be in the future.";
-  }
-  if (diffDays < 7) {
-    return "The review date must be at least 1 week from now.";
-  }
-  if (diffDays > 42) {
-    return "The review date must be at most 6 weeks from now.";
-  }
-
-  return null;
-}
