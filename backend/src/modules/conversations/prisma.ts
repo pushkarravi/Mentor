@@ -501,12 +501,23 @@ export class PrismaConversationRepository
       linkType: LinkType;
     },
   ): Promise<HypothesisEvidenceLink> {
-    // Verify ownership through the hypothesis
-    const hyp = await this.prisma.careerHypothesis.findFirst({
-      where: { id: data.hypothesisId, userId },
-    });
-    if (!hyp) {
+    // Both sides of a cross-entity relationship must belong to the
+    // supplied user. HypothesisEvidence deliberately has no userId
+    // column, so ownership is enforced through its parent records.
+    const [hypothesis, evidence] = await Promise.all([
+      this.prisma.careerHypothesis.findFirst({
+        where: { id: data.hypothesisId, userId },
+      }),
+      this.prisma.evidence.findFirst({
+        where: { id: data.evidenceId, userId },
+      }),
+    ]);
+
+    if (!hypothesis) {
       throw new Error("Hypothesis not found for this user");
+    }
+    if (!evidence) {
+      throw new Error("Evidence not found for this user");
     }
 
     // Upsert: if the pair already exists, update the linkType
@@ -560,6 +571,9 @@ export class PrismaConversationRepository
       where: {
         hypothesisId,
         hypothesis: { userId },
+        // Defensive ownership filter: corrupted cross-user links must
+        // never be surfaced as legitimate evidence for this hypothesis.
+        evidence: { userId },
       },
       include: {
         evidence: true,
@@ -593,6 +607,15 @@ export class PrismaConversationRepository
       reviewDate?: string | null;
     },
   ): Promise<ExperimentData> {
+    // A caller must not create an experiment for another user's
+    // hypothesis merely by knowing its ID.
+    const hypothesis = await this.prisma.careerHypothesis.findFirst({
+      where: { id: data.hypothesisId, userId },
+    });
+    if (!hypothesis) {
+      throw new Error("Hypothesis not found for this user");
+    }
+
     const exp = await this.prisma.careerExperiment.create({
       data: {
         userId,

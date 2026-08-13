@@ -242,22 +242,20 @@ _(Update this section every milestone.)_
   committed at `backend/prisma/migrations/20260812000000_m0_initial_schema/migration.sql`.
 - **No auth** — M0 is localhost-only, single-user, per ARCHITECTURE.md § 2. Auth is documented as
   a future trigger, not implemented.
-- **Prisma/PostgreSQL-backed**: `PrismaConversationRepository` implements the full
-  `ConversationRepository` interface using `@prisma/client` with real `prisma.$transaction`
-  for the three integrity-critical operations (confirmPendingCandidate,
-  recordExperimentOutcomeAtomic, applyExperimentOutcomeReviewAtomic). Repository factory
-  in `backend/src/modules/conversations/factory.ts` selects between in-memory and Prisma
-  based on `REPOSITORY_PROVIDER` env var (defaults to Prisma when `DATABASE_URL` is set).
-  Backend persistence uses `DATABASE_URL` only — no `VITE_*` variables. The M0 local user
-  (`m0-local-user`) is upserted at database setup time. 209 tests passing (138 existing +
-  34 in-memory contract + 34 Supabase contract + 3 persistence/restart), plus 34 Prisma
-  contract tests and 5 transaction rollback tests that run when `DATABASE_URL` is available.
-  Typecheck, lint, and frontend typecheck all green.
-- **SupabaseConversationRepository** (temporary): A PostgREST-based implementation kept
-  temporarily for comparison. It is NOT the M0 persistence implementation — use
-  `PrismaConversationRepository` for normal M0 PostgreSQL execution. The Supabase repo
-  uses best-effort cleanup instead of real transactions, which does not satisfy the
-  atomicity contract.
+- **Prisma/PostgreSQL persistence implemented, local acceptance pending**:
+  `PrismaConversationRepository` implements the full `ConversationRepository` interface using
+  `@prisma/client` with real `prisma.$transaction` boundaries for candidate confirmation,
+  experiment outcome recording, and experiment outcome review. The repository factory selects
+  Prisma when `DATABASE_URL` is configured; backend persistence uses `DATABASE_URL` only.
+  The Prisma implementation is compile-validated, but its PostgreSQL contract, ownership, and
+  transaction integration tests have **not yet been executed locally with `DATABASE_URL`**.
+  Supabase/PostgREST tests validate the hosted Bolt database path only and do not count as
+  runtime validation of `PrismaConversationRepository`.
+- **SupabaseConversationRepository** (temporary): A PostgREST-based implementation retained
+  only for contract checks in Bolt's hosted environment, where no direct PostgreSQL connection
+  string is exposed. It is NOT the canonical M0 persistence implementation. Prisma/PostgreSQL
+  remains the target persistence path because the three integrity-critical operations require
+  real database transactions.
 
 ### M0 status: structurally implemented and Prisma/PostgreSQL-backed, not yet product-validated
 
