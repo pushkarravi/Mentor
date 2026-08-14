@@ -9,7 +9,7 @@ const hasDatabase = !!databaseUrl;
 describe.skipIf(!hasDatabase)(
   "PrismaConversationRepository — contract tests",
   () => {
-    const USER_ID = "test-user-prisma-contract";
+    const USER_ID = "test-user-contract";
     let prisma: PrismaClient;
 
     beforeAll(() => {
